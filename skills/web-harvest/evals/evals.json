@@ -1,0 +1,53 @@
+{
+  "skill_name": "web-harvest",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "查英伟达今天的股价、市值、PE，并核对公司最新10-Q里的收入。说明你会调用哪些通道以及先后顺序。",
+      "expected_output": "T0结构化数据先走stock-data，季度披露回到SEC或公司原文，普通搜索只负责定位和补充。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "把这个微信公众号链接全文保存到Obsidian Inbox，不需要分析。说明所用路由。https://mp.weixin.qq.com/s/example",
+      "expected_output": "直接调用wechat-article-to-markdown归档，不启动完整投研流程。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "群里传三星准备砍HBM订单。核实真假，列出原始主张、来源等级和反证。",
+      "expected_output": "走investment-search，拆分原子主张，搜索定位后回到一手来源，并把小作文保持为P3线索。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "抓取一个公开网站的全部500个分页，保存CSV，任务中断后还能继续。说明执行方案。",
+      "expected_output": "使用Scrapling Spider，小样本验证后加入节流、checkpoint、去重与错误记录。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "我已经在Chrome登录小红书，请读取收藏列表。说明登录和Cookie怎么处理。",
+      "expected_output": "使用web-access复用用户登录态，不自动填写凭证、导出Cookie或缓存登录正文。",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "昨天搜过HBM4新闻，今天再搜一次。请说明缓存何时可复用、何时必须刷新。",
+      "expected_output": "先查查询缓存；新闻缓存只作短期复用，若用户要求最新则核对年龄和发布时间后刷新。",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "某微信公众号文章和券商报告都说一家公司拿到大单，能否直接确认？",
+      "expected_output": "微信公众号按P3、卖方按P2处理，评分不能升级证据等级，必须寻找公告、客户披露或其他一手证据。",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "在本地Obsidian目录里找所有提到光模块的Markdown文件。",
+      "expected_output": "识别为本地文件搜索，不触发web-harvest联网通道。",
+      "files": []
+    }
+  ]
+}

@@ -1,0 +1,187 @@
+# 反偷懒模糊词库 (Buzzword Lexicon) v1.0
+# 与 anti_laziness_protocol.md 1.1 节同源
+# 使用者：buzzword_detector.py + semantic_diff.py（共享敷衍模式词典）
+#
+# 判定原则：
+#   - 这些词汇本身不是"废话"，关键看是否紧跟具体数据/事件支撑
+#   - buzzword_detector 算法：同一句子内、词汇右侧是否出现 数字/百分比/日期/具体名词
+#   - 若右侧无具体支撑 → 计为一次"零数据废话"
+#   - 任一类别 ≥2 处零数据废话 → verdict=FAIL
+
+version: "1.0"
+updated: "2026-05-29"
+
+# ========== 8 类禁词 ==========
+buzzwords:
+  emotion:
+    label: "情绪类"
+    description: "无量化指标的情绪描述"
+    patterns:
+      - "市场情绪改善"
+      - "市场情绪恶化"
+      - "情绪回暖"
+      - "情绪降温"
+      - "信心回暖"
+      - "信心受挫"
+      - "恐慌蔓延"
+      - "情绪修复"
+      - "市场氛围"
+    compliance_example: "北向资金单日净流入83亿+融资余额5日上升→情绪回暖"
+
+  trend:
+    label: "趋势类"
+    description: "无具体业绩/订单/数据支撑的方向性套话"
+    patterns:
+      - "有望受益于"
+      - "或将迎来"
+      - "存在上行空间"
+      - "有望实现"
+      - "有望突破"
+      - "增长动能"
+      - "前景广阔"
+      - "想象空间"
+    compliance_example: "公司Q1订单同比+47%，直接受益于XX政策第3条"
+
+  policy:
+    label: "政策类"
+    description: "未指明具体文件/条款的政策套话"
+    patterns:
+      - "政策利好"
+      - "政策支持"
+      - "政策红利"
+      - "政策导向"
+      - "顶层设计"
+      - "战略机遇"
+      - "国家战略"
+    compliance_example: "国务院5月20日发布《XX意见》第7条明确补贴标准"
+
+  valuation:
+    label: "估值类"
+    description: "未给出 PE/PB/PEG 数值对比的估值套话"
+    patterns:
+      - "估值合理"
+      - "估值不贵"
+      - "估值偏低"
+      - "性价比高"
+      - "安全边际"
+      - "估值修复"
+      - "估值切换"
+    compliance_example: "当前PE 23x vs 行业中位数31x，PEG 0.8"
+
+  direction:
+    label: "方向类"
+    description: "无目标价/触发条件的空话"
+    patterns:
+      - "存在上行空间"
+      - "下行有限"
+      - "向上突破"
+      - "震荡上行"
+      - "中长期看好"
+      - "战略性配置"
+      - "底部已现"
+    compliance_example: "中性情景目标价¥45（+18%），触发条件：Q2营收>12亿"
+
+  hedge:
+    label: "对冲类"
+    description: "未量化冲击幅度的风险提示"
+    patterns:
+      - "注意风险"
+      - "存在风险"
+      - "需要警惕"
+      - "需关注"
+      - "存在不确定性"
+      - "波动加剧"
+      - "理性看待"
+    compliance_example: "核心风险：客户A占营收38%，若丢失→EPS下降42%"
+
+  time:
+    label: "时间类"
+    description: "无具体时间窗口的模糊时间词"
+    patterns:
+      - "近期"
+      - "短期"
+      - "中期"
+      - "中长期"
+      - "未来一段时间"
+      - "目前"
+      - "当下"
+      - "后续"
+    compliance_example: "未来2-4周 / 6月15日前 / 2026Q3"
+
+  causality:
+    label: "因果类"
+    description: "未列出具体因素的笼统因果"
+    patterns:
+      - "受多重因素影响"
+      - "综合来看"
+      - "总体而言"
+      - "整体看"
+      - "种种因素"
+      - "诸多原因"
+    compliance_example: "受三因素叠加：1) 美债利率回落（权重40%）2) 北向回流（35%）3) 季报超预期（25%）"
+
+# ========== 敷衍模式词典（A4 semantic_diff 共用）==========
+# 用于判定返工稿是否仅做表面修改而非实质性回应
+perfunctory_patterns:
+  description: "返工时若仅添加这些词/做这些动作 → 判定为非实质性修改"
+  modifier_swap:
+    label: "仅修饰词替换"
+    examples:
+      - "较为 → 非常"
+      - "显著 → 明显"
+      - "相对 → 比较"
+      - "较好 → 良好"
+      - "较高 → 偏高"
+  hedging_addition:
+    label: "仅添加 disclaimer"
+    examples:
+      - "注意风险"
+      - "请投资者审慎"
+      - "市场有风险"
+      - "投资需谨慎"
+      - "本观点仅供参考"
+  vague_replacement:
+    label: "用同样模糊的表达替换原表达"
+    examples:
+      - "可能 → 或许"
+      - "应该 → 大概率"
+      - "建议关注 → 值得跟踪"
+  fake_data_pattern:
+    label: "假装补数据但仍模糊"
+    examples:
+      - "订单情况良好"
+      - "营收稳健增长"
+      - "业绩符合预期"
+      - "经营状况正常"
+      - "符合行业平均水平"
+  meta_only:
+    label: "仅添加元信息但正文无变化"
+    examples:
+      - "[修订记录]"
+      - "[已更新]"
+      - "v2.0"
+      - "（修订版）"
+
+# ========== "数据支撑"判定规则 ==========
+# buzzword_detector 同句内禁词右侧应出现以下任一才算"有数据支撑"
+data_support_rules:
+  description: "禁词右侧 60 字符内出现以下任一 = 紧跟数据 = 不计入零数据废话"
+  patterns:
+    - regex: '\d+(\.\d+)?%'           # 百分比 +47% / 23.5%
+      label: "百分比"
+    - regex: '\d+(\.\d+)?\s*(亿|万|千万|百万)'  # 金额规模
+      label: "金额规模"
+    - regex: '\d{4}[-/年]\d{1,2}[-/月]?\d{0,2}'  # 日期 2026-05-29 / 2026年5月
+      label: "具体日期"
+    - regex: 'Q[1-4]'                  # 季度 Q1/Q2
+      label: "季度"
+    - regex: 'PE\s*\d+(\.\d+)?\s*x?'   # PE 数值
+      label: "PE 估值"
+    - regex: 'PB\s*\d+(\.\d+)?'        # PB 数值
+      label: "PB 估值"
+    - regex: '¥\d+|\$\d+|\d+\s*元'     # 价格
+      label: "具体价格"
+    - regex: '第\d+笔|笔ID\s*\d+|笔序号\s*\d+'  # 缠论笔序号
+      label: "缠论笔序号"
+    - regex: '《[^》]+》'              # 文件名
+      label: "具体文件"

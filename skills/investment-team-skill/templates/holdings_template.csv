@@ -1,0 +1,6 @@
+ticker,name,market,industry,weight,cost,profit
+EXAMPLE_A,示例A股,A,半导体,5.0%,50.00,10.5%
+EXAMPLE_B,示例B股,A,新能源,3.0%,80.00,-2.1%
+EXAMPLE_HK,示例港股,HK,科技,4.0%,250.00,5.0%
+NVDA,英伟达,US,半导体,6.5%,180.00,20.0%
+VOO,标普500ETF,US,宽基,5.0%,500.00,8.0%

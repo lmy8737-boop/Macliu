@@ -1,0 +1,525 @@
+<!--
+  v6.4.6 投研团队报告标准模板（黑金主题 · Black Gold Edition）
+  ============================================
+  v6.2.1 → v6.4.6 升级：从冷蓝紫绿配色 → 黑金低调配色（不要太土，金色仅用于强调）
+  历史依据：harbin-electric / china-isotope / huahong / kaiwang / national-team-chip / dongcai / marvell
+
+  使用方法：
+    1. 复制本文件 → 替换 {{TICKER}} {{NAME}} {{DATE}} {{...}} 占位符
+    2. 按需启用/删除 card 区块（基本面 / 同行 / 估值 / 5号 audit / action-box / KTV 选美 / 穿越者 4 法则）
+    3. 颜色规范（v6.4.6 黑金）：
+       - 主背景 #0a0908（真黑） / 卡 #161310（暖暗）
+       - 主金 #d4af37（古典金，仅用于标题/关键数字/强调）
+       - 利好 #88c46c（暖绿，避免荧光） / 利空 #e74c3c / 警示 #f5b041 / 紫金（穿越者）#b59458
+
+  组件清单（参考 references/report_style_guide.md）：
+    - verdict-box.warn / .bad / .good ── 顶部判定盒
+    - card                            ── 基本卡片
+    - tag.tag-{green,red,yellow,blue,orange,purple,gold}  ── chip 徽章
+    - blockquote.{bull,bear,warn}     ── 高亮引用
+    - catalyst-item.{done,pending,bad} ── 催化剂列表
+    - action-box / action-option.{recommended,bad} ── 操作建议盒
+    - stat-card / stat-num / stat-label ── 统计卡
+    - 🆕 .ktv-card                    ── v6.4.6 KTV 选美 100 分量化打分卡
+    - 🆕 .traveler-laws-grid          ── v6.4.6 穿越者 4 法则正式版（涟漪 / 正确方向基建 / 非龙头贝塔 / 恐慌）
+    - 🆕 .debate-card / .rebuttal-grid / .consensus-box ── v6.5.0 团队讨论与共识形成（5 号主持的对辩双栏 + 金色共识盒）
+
+  铁律：
+    ✅ 缠论真值（czsc 0.10.12 子环境）+ 江恩位 fallback + 多周期共振
+    ✅ KTV 选美打分必须输出（盈利30 + 成长35 + 财务安全25 + 估值10 = 100 分）
+    ✅ 穿越者 4 法则用 v6.4.6 正式版（涟漪 / 正确方向基建 / 非龙头贝塔 / 恐慌）— 不要再用旧版 ROE/北向/现金流伪法则
+    ✅ 数据来源诚实标注（雪球 / akshare / czsc / WebSearch / [LLM_FIXTURE]）
+    ✅ v6.5.0：czsc 真值未启用时必须先尝试自启动（scripts/setup/auto_setup_czsc.sh），失败再降级 fallback
+    ✅ v6.5.0：检测到 1/2/4/7 号结论分歧 → 必须独立成「团队讨论」章节，不得简单聚合
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>投研团队联合分析：{{NAME}} ({{TICKER}}) | {{DATE}}</title>
+    <style>
+        :root {
+            /* v6.4.6 黑金主题（Black Gold Edition）*/
+            --bg: #0a0908;            /* 真黑背景 */
+            --card: #161310;          /* 暖暗卡 */
+            --card-2: #1c1814;        /* 二级卡（嵌套用）*/
+            --border: #2a2419;        /* 暗金棕边 */
+            --text: #e6dcc1;          /* 暖白文字（不要纯白）*/
+            --muted: #8a7f6a;         /* 暗金灰（次要文字）*/
+            --gold: #d4af37;          /* 古典金（主强调色）*/
+            --gold-2: #f4d03f;        /* 亮金（数字/高亮）*/
+            --gold-soft: #b59458;     /* 哑光金（穿越者/宏观）*/
+            --accent: #d4af37;        /* alias 兼容老组件 */
+            --green: #88c46c;         /* 暖绿利好（不刺眼）*/
+            --red: #e74c3c;           /* 红利空 */
+            --yellow: #f5b041;        /* 警示橙金 */
+            --orange: #e67e22;        /* 橙 */
+            --purple: #b59458;        /* 紫位置改为哑光金（黑金主题不用紫）*/
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+               background:
+                 radial-gradient(ellipse at top left, rgba(212,175,55,0.04), transparent 40%),
+                 radial-gradient(ellipse at bottom right, rgba(212,175,55,0.03), transparent 40%),
+                 var(--bg);
+               color: var(--text); line-height: 1.6; padding: 2rem;
+               background-attachment: fixed; min-height: 100vh; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { text-align: center; padding: 2rem 0 2.5rem;
+                  border-bottom: 1px solid var(--border); margin-bottom: 2rem;
+                  position: relative; }
+        .header::after { content:''; position:absolute; bottom:-1px; left:50%;
+                  transform:translateX(-50%); width: 80px; height: 2px;
+                  background: linear-gradient(90deg, transparent, var(--gold), transparent); }
+        .header h1 { font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem;
+                  background: linear-gradient(135deg, var(--gold-2) 0%, var(--gold) 50%, #b8941d 100%);
+                  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+                  letter-spacing: 0.5px; }
+        .header .subtitle { color: var(--muted); font-size: 1rem; }
+        .verdict-box { display: inline-block; margin-top: 1.5rem; padding: 0.75rem 2rem;
+                       border-radius: 8px; font-size: 1.05rem; font-weight: 700; }
+        .verdict-box.good { background: linear-gradient(135deg, rgba(136,196,108,0.10), rgba(136,196,108,0.04));
+                            border: 1px solid var(--green); color: var(--green); }
+        .verdict-box.warn { background: linear-gradient(135deg, rgba(245,176,65,0.10), rgba(245,176,65,0.04));
+                            border: 1px solid var(--yellow); color: var(--yellow); }
+        .verdict-box.bad  { background: linear-gradient(135deg, rgba(231,76,60,0.10), rgba(231,76,60,0.04));
+                            border: 1px solid var(--red); color: var(--red); }
+        .card { background: var(--card); border: 1px solid var(--border);
+                border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(212,175,55,0.05); }
+        .card h2 { font-size: 1.2rem; margin-bottom: 1rem; color: var(--gold);
+                   display: flex; align-items: center; gap: 0.5rem;
+                   padding-bottom: 0.6rem; border-bottom: 1px solid var(--border); }
+        .card h3 { font-size: 1rem; color: var(--gold-soft); margin: 1.2rem 0 0.6rem;
+                   letter-spacing: 0.3px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 1rem; }
+        @media (max-width: 768px) {
+            .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+        }
+        table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; font-size: 0.9rem; }
+        th, td { padding: 0.6rem 0.8rem; text-align: left;
+                 border-bottom: 1px solid var(--border); vertical-align: top; }
+        th { color: var(--gold); font-weight: 600; font-size: 0.78rem;
+             text-transform: uppercase; letter-spacing: 0.6px; background: rgba(212,175,55,0.04); }
+        tr:hover { background: rgba(212,175,55,0.03); }
+        .tag { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 4px;
+               font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+        .tag-green  { background: rgba(136,196,108,0.12); color: var(--green); border: 1px solid rgba(136,196,108,0.3); }
+        .tag-red    { background: rgba(231,76,60,0.12);  color: var(--red); border: 1px solid rgba(231,76,60,0.3); }
+        .tag-yellow { background: rgba(245,176,65,0.12); color: var(--yellow); border: 1px solid rgba(245,176,65,0.3); }
+        .tag-gold   { background: rgba(212,175,55,0.12); color: var(--gold-2); border: 1px solid rgba(212,175,55,0.4); }
+        .tag-blue   { background: rgba(212,175,55,0.08); color: var(--gold-soft); }
+        .tag-orange { background: rgba(230,126,34,0.12); color: var(--orange); border: 1px solid rgba(230,126,34,0.3); }
+        .tag-purple { background: rgba(181,148,88,0.12); color: var(--gold-soft); border: 1px solid rgba(181,148,88,0.3); }
+        .metric-row { display: flex; justify-content: space-between;
+                      padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+        .metric-row:last-child { border-bottom: none; }
+        .metric-label { color: var(--muted); font-size: 0.85rem; }
+        .metric-value { font-weight: 600; color: var(--text); }
+        .highlight { color: var(--gold-2); font-weight: 700; }
+        .positive { color: var(--green); }
+        .negative { color: var(--red); }
+        .warning  { color: var(--yellow); }
+        blockquote { border-left: 3px solid var(--gold); padding: 0.8rem 1.2rem;
+                     margin: 1rem 0; background: rgba(212,175,55,0.04);
+                     border-radius: 0 8px 8px 0; }
+        blockquote.bull { border-left-color: var(--green); background: rgba(136,196,108,0.05); }
+        blockquote.bear { border-left-color: var(--red);   background: rgba(231,76,60,0.05); }
+        blockquote.warn { border-left-color: var(--yellow); background: rgba(245,176,65,0.05); }
+        .status-pass { display: inline-flex; align-items: center; gap: 0.4rem;
+                       padding: 0.4rem 1rem; background: rgba(136,196,108,0.08);
+                       border: 1px solid var(--green); border-radius: 20px;
+                       color: var(--green); font-weight: 600; font-size: 0.85rem; }
+        .status-warn { display: inline-flex; align-items: center; gap: 0.4rem;
+                       padding: 0.4rem 1rem; background: rgba(245,176,65,0.08);
+                       border: 1px solid var(--yellow); border-radius: 20px;
+                       color: var(--yellow); font-weight: 600; font-size: 0.85rem; }
+        .status-bad  { display: inline-flex; align-items: center; gap: 0.4rem;
+                       padding: 0.4rem 1rem; background: rgba(231,76,60,0.08);
+                       border: 1px solid var(--red); border-radius: 20px;
+                       color: var(--red); font-weight: 600; font-size: 0.85rem; }
+        .action-box { background: linear-gradient(135deg, rgba(212,175,55,0.08), rgba(181,148,88,0.04));
+                      border: 1px solid var(--gold); border-radius: 12px;
+                      padding: 2rem; text-align: center; margin: 2rem 0; }
+        .action-box h2 { color: var(--gold-2); border-bottom: none; justify-content: center; }
+        .action-options { display: flex; justify-content: center; gap: 1rem;
+                          margin-top: 1.5rem; flex-wrap: wrap; }
+        .action-option { padding: 1rem 1.5rem; border-radius: 8px;
+                         border: 1px solid var(--border); min-width: 200px;
+                         text-align: center; flex: 1; background: var(--card); }
+        .action-option.recommended { border-color: var(--green); background: rgba(136,196,108,0.06); }
+        .action-option.bad         { border-color: var(--red);   background: rgba(231,76,60,0.06); }
+        .action-option .label { font-weight: 700; font-size: 1rem; margin-bottom: 0.3rem; }
+        .action-option .desc  { color: var(--muted); font-size: 0.8rem; }
+        .catalyst-item { display: flex; align-items: center; gap: 0.8rem;
+                         padding: 0.6rem 0.8rem; margin: 0.4rem 0;
+                         background: rgba(212,175,55,0.04); border-radius: 6px;
+                         border-left: 3px solid var(--gold); }
+        .catalyst-item.done    { background: rgba(136,196,108,0.05);  border-left-color: var(--green); }
+        .catalyst-item.pending { background: rgba(245,176,65,0.05);  border-left-color: var(--yellow); }
+        .catalyst-item.bad     { background: rgba(231,76,60,0.05); border-left-color: var(--red); }
+        .stat-card { padding: 1rem; background: var(--card-2);
+                     border: 1px solid var(--border); border-radius: 8px; }
+        .stat-num   { font-size: 1.4rem; font-weight: 700; color: var(--gold-2); }
+        .stat-label { color: var(--muted); font-size: 0.75rem;
+                      text-transform: uppercase; letter-spacing: 0.6px; }
+        .footer { text-align: center; padding: 2rem 0; color: var(--muted);
+                  font-size: 0.8rem; border-top: 1px solid var(--border); margin-top: 2rem; }
+        a { color: var(--gold-2); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+        /*  🆕 v6.5.0 团队讨论与共识形成（紫金边对辩双栏 + 金色共识盒）  */
+        /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+        .debate-card {
+            background: linear-gradient(135deg, rgba(181,148,88,0.10), rgba(212,175,55,0.04));
+            border: 1.5px solid var(--gold-soft); border-radius: 14px;
+            padding: 1.8rem; margin: 1.5rem 0; position: relative;
+        }
+        .debate-card::before {
+            content: 'v6.5 团队讨论'; position: absolute; top: -10px; right: 20px;
+            background: var(--bg); padding: 2px 12px; color: var(--gold-soft);
+            font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px;
+            border: 1px solid var(--gold-soft); border-radius: 12px;
+        }
+        .debate-card h2 { color: var(--gold-soft); border-bottom: 1px solid rgba(181,148,88,0.3);
+                          padding-bottom: 0.7rem; }
+        .debate-summary { color: var(--text); font-size: 0.95rem;
+                          padding: 0.8rem 1rem; background: rgba(181,148,88,0.06);
+                          border-left: 3px solid var(--gold-soft);
+                          border-radius: 0 8px 8px 0; margin-bottom: 1.2rem; }
+        .disagreement { background: var(--card-2); border: 1px solid var(--border);
+                        border-radius: 10px; padding: 1.2rem; margin-bottom: 1.2rem; }
+        .disagreement h3 { color: var(--gold-2); font-size: 1rem; margin-bottom: 0.8rem;
+                           padding-bottom: 0.5rem; border-bottom: 1px dashed rgba(212,175,55,0.2); }
+        .rebuttal-grid { display: grid; grid-template-columns: 1fr 1fr;
+                         gap: 1rem; margin: 1rem 0; }
+        @media (max-width: 768px) { .rebuttal-grid { grid-template-columns: 1fr; } }
+        .rebuttal { background: var(--card); border: 1px solid var(--border);
+                    border-radius: 8px; padding: 1rem; position: relative; }
+        .rebuttal-a { border-left: 3px solid #88c46c; }   /* 暖绿 = A 方 */
+        .rebuttal-b { border-left: 3px solid #f5b041; }   /* 警示橙 = B 方 */
+        .role-tag { display: inline-block; padding: 3px 10px; margin-bottom: 0.6rem;
+                    border-radius: 4px; font-size: 0.78rem; font-weight: 700;
+                    background: rgba(212,175,55,0.12); color: var(--gold-2);
+                    border: 1px solid rgba(212,175,55,0.35); }
+        .rebuttal-section { font-size: 0.84rem; line-height: 1.6; margin: 0.4rem 0; }
+        .rebuttal-section strong { color: var(--gold-soft); }
+        .consensus-box {
+            margin-top: 1rem; padding: 1rem 1.2rem;
+            background: linear-gradient(135deg, rgba(212,175,55,0.10), rgba(212,175,55,0.04));
+            border: 1px solid var(--gold); border-radius: 8px;
+            box-shadow: 0 0 12px rgba(212,175,55,0.10), inset 0 1px 0 rgba(212,175,55,0.10);
+        }
+        .consensus-box::before { content: '🎯 '; color: var(--gold-2); }
+        .consensus-box strong { color: var(--gold-2); }
+        .consensus-not-converged {
+            border: 1px dashed var(--red);
+            background: linear-gradient(135deg, rgba(231,76,60,0.06), rgba(231,76,60,0.02));
+        }
+        .consensus-not-converged strong { color: var(--red); }
+
+        /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+        /*  🆕 v6.4.6 KTV 选美打分卡（盈利30 + 成长35 + 财务安全25 + 估值10）  */
+        /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+        .ktv-card {
+            background: linear-gradient(135deg, rgba(212,175,55,0.06), rgba(181,148,88,0.03));
+            border: 1px solid var(--gold); border-radius: 14px; padding: 1.8rem;
+            margin: 1.5rem 0; position: relative; overflow: hidden;
+        }
+        .ktv-card::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--gold-2), transparent);
+        }
+        .ktv-card h2 { color: var(--gold-2); border-bottom: 1px solid rgba(212,175,55,0.3); padding-bottom: 0.7rem; }
+        .ktv-grade { font-size: 4rem; font-weight: 800; line-height: 1;
+                     background: linear-gradient(135deg, var(--gold-2), var(--gold));
+                     -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .ktv-total { font-size: 2.4rem; font-weight: 700; color: var(--gold); }
+        .ktv-bar { display: flex; align-items: center; gap: 0.8rem; margin: 0.5rem 0; font-size: 0.85rem; }
+        .ktv-bar-label { width: 110px; color: var(--muted); }
+        .ktv-bar-track { flex: 1; height: 14px; background: var(--card-2); border-radius: 7px; overflow: hidden; position: relative; }
+        .ktv-bar-fill { height: 100%; border-radius: 7px;
+                        background: linear-gradient(90deg, var(--gold-soft), var(--gold-2));
+                        box-shadow: 0 0 8px rgba(212,175,55,0.3); }
+        .ktv-bar-fill.bad { background: linear-gradient(90deg, #c0392b, var(--red)); box-shadow: 0 0 8px rgba(231,76,60,0.3); }
+        .ktv-bar-fill.warn { background: linear-gradient(90deg, var(--orange), var(--yellow)); }
+        .ktv-bar-score { width: 80px; text-align: right; font-variant-numeric: tabular-nums; color: var(--gold-2); font-weight: 700; }
+        .ktv-grade-S { color: #f4d03f; }
+        .ktv-grade-A { color: #d4af37; }
+        .ktv-grade-B { color: #f5b041; }
+        .ktv-grade-C { color: #e74c3c; }
+
+        /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+        /*  🆕 v6.4.6 穿越者 4 法则正式版                              */
+        /*  涟漪 / 正确方向基建 / 非龙头贝塔 / 恐慌                  */
+        /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+        .traveler-card {
+            background: linear-gradient(135deg, rgba(181,148,88,0.08), rgba(212,175,55,0.03));
+            border: 1px solid var(--gold-soft); border-radius: 14px; padding: 1.8rem;
+            margin: 1.5rem 0;
+        }
+        .traveler-card h2 { color: var(--gold-soft); border-bottom: 1px solid rgba(181,148,88,0.3); padding-bottom: 0.7rem; }
+        .traveler-laws-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+        @media (max-width: 768px) { .traveler-laws-grid { grid-template-columns: 1fr; } }
+        .law-item {
+            background: var(--card-2); border: 1px solid var(--border);
+            border-radius: 10px; padding: 1.1rem; position: relative;
+        }
+        .law-item.hit    { border-color: var(--green); background: rgba(136,196,108,0.04); }
+        .law-item.miss   { border-color: var(--red);   background: rgba(231,76,60,0.04); }
+        .law-item.partial{ border-color: var(--yellow); background: rgba(245,176,65,0.04); }
+        .law-num { position: absolute; top: -10px; right: 14px;
+                   width: 26px; height: 26px; border-radius: 50%;
+                   background: var(--gold-soft); color: var(--bg);
+                   display: flex; align-items: center; justify-content: center;
+                   font-weight: 800; font-size: 0.9rem; }
+        .law-name { color: var(--gold-2); font-weight: 700; font-size: 1.05rem; margin-bottom: 0.3rem; }
+        .law-rule { color: var(--muted); font-size: 0.78rem; margin-bottom: 0.5rem; font-style: italic; }
+        .law-stats { font-size: 0.78rem; color: var(--gold-soft); margin-bottom: 0.5rem;
+                     padding: 4px 8px; background: rgba(212,175,55,0.06); border-radius: 4px;
+                     display: inline-block; }
+        .law-verdict { font-size: 0.88rem; line-height: 1.5; }
+        .law-tag { display: inline-block; padding: 2px 8px; border-radius: 4px;
+                   font-size: 0.72rem; font-weight: 700; margin-left: 4px; }
+
+        /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+        /*  🆕 v6.4.6 czsc 真值章节（替换 v6.4.5 紫色）              */
+        /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+        .czsc-section {
+            background: linear-gradient(135deg, rgba(212,175,55,0.05), rgba(181,148,88,0.02));
+            border: 1.5px solid var(--gold-soft); border-radius: 14px; padding: 1.8rem;
+            margin: 1.5rem 0; position: relative;
+        }
+        .czsc-section::before {
+            content: 'czsc 0.10.12 真值'; position: absolute; top: -10px; right: 20px;
+            background: var(--bg); padding: 2px 12px; color: var(--gold-2);
+            font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px;
+            border: 1px solid var(--gold); border-radius: 12px;
+        }
+        .czsc-section h2 { color: var(--gold-2); border-bottom: 1px solid rgba(212,175,55,0.3); }
+        .czsc-output {
+            background: #050403; border: 1px solid var(--border); border-radius: 8px;
+            padding: 1rem; font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+            font-size: 0.78rem; color: var(--gold-soft); overflow-x: auto;
+            white-space: pre; line-height: 1.5;
+        }
+        .kbd { font-family: monospace; background: rgba(212,175,55,0.1);
+               padding: 2px 6px; border-radius: 3px; color: var(--gold-2); font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+<div class="container">
+
+<!-- ════════ Header ════════ -->
+<div class="header">
+    <h1>{{EMOJI}} {{NAME}} ({{TICKER}}) — {{SUBTITLE}}</h1>
+    <div class="subtitle">投研团队联合分析 | {{DATE}} | {{TAG_LINE}}</div>
+    <!-- verdict-box: good/warn/bad 三选一 -->
+    <div class="verdict-box {{VERDICT_CLASS}}">{{VERDICT_TEXT}}</div>
+</div>
+
+<!-- ════════ Core Metrics（grid-3 三张卡）════════ -->
+<div class="grid-3">
+    <div class="card">
+        <div class="metric-row"><span class="metric-label">当前价</span>     <span class="metric-value">{{CURRENT_PRICE}}</span></div>
+        <div class="metric-row"><span class="metric-label">市值</span>       <span class="metric-value">{{MARKET_CAP}}</span></div>
+        <div class="metric-row"><span class="metric-label">52 周高/低</span> <span class="metric-value">{{HIGH_LOW}}</span></div>
+        <div class="metric-row"><span class="metric-label">YTD</span>        <span class="metric-value positive">{{YTD}}</span></div>
+    </div>
+    <div class="card">
+        <div class="metric-row"><span class="metric-label">PE TTM</span>     <span class="metric-value highlight">{{PE}}</span></div>
+        <div class="metric-row"><span class="metric-label">PB</span>         <span class="metric-value">{{PB}}</span></div>
+        <div class="metric-row"><span class="metric-label">净利增速</span>   <span class="metric-value positive">{{NP_GROWTH}}</span></div>
+        <div class="metric-row"><span class="metric-label">3年 CAGR</span>   <span class="metric-value positive">{{CAGR}}</span></div>
+    </div>
+    <div class="card">
+        <div class="metric-row"><span class="metric-label">{{KEY1_LABEL}}</span> <span class="metric-value highlight">{{KEY1_VALUE}}</span></div>
+        <div class="metric-row"><span class="metric-label">{{KEY2_LABEL}}</span> <span class="metric-value">{{KEY2_VALUE}}</span></div>
+        <div class="metric-row"><span class="metric-label">{{KEY3_LABEL}}</span> <span class="metric-value positive">{{KEY3_VALUE}}</span></div>
+        <div class="metric-row"><span class="metric-label">分析师目标</span>     <span class="metric-value highlight">{{ANALYST_TARGET}}</span></div>
+    </div>
+</div>
+
+<!-- ════════ 信息验证（事件型报告必备）════════ -->
+<div class="card">
+    <h2>🔍 信息验证（5 号 audit 多源核实）</h2>
+    <p style="color:var(--muted); font-size:0.9rem;">来源：{{SOURCES_LINE}}</p>
+    <table>
+        <tr><th>项目</th><th>内容</th><th>验证</th></tr>
+        <tr><td>{{FACT_1_NAME}}</td><td>{{FACT_1_VALUE}}</td><td><span class="tag tag-green">三源一致</span></td></tr>
+        <!-- 每个核心事实一行 -->
+    </table>
+</div>
+
+<!-- ════════ 关键事件时间线（适合事件驱动）════════ -->
+<div class="card">
+    <h2>📅 关键事件时间线</h2>
+    <div class="catalyst-item done">
+        <span>✅</span><div><strong>{{EVENT_DATE}}</strong> — {{EVENT_TEXT}}</div>
+    </div>
+    <div class="catalyst-item pending">
+        <span>⏳</span><div><strong>{{EVENT_DATE}}</strong> — {{EVENT_TEXT}}</div>
+    </div>
+    <div class="catalyst-item bad">
+        <span>🚩</span><div><strong>{{EVENT_DATE}}</strong> — {{EVENT_TEXT}}</div>
+    </div>
+</div>
+
+<!-- ════════ 基本面（业务结构 + 财报趋势 + 三大引擎）════════ -->
+<div class="card">
+    <h2>🏭 基本面分析</h2>
+    <h3>主营业务结构</h3>
+    <table>
+        <tr><th>板块</th><th>营收</th><th>占比</th><th>毛利率</th><th>评语</th></tr>
+        <tr><td>{{SEG_1}}</td><td>{{REV_1}}</td><td>{{PCT_1}}</td><td>{{GM_1}}</td><td>{{NOTE_1}}</td></tr>
+    </table>
+
+    <h3>财务趋势</h3>
+    <table>
+        <tr><th>指标</th><th>2023</th><th>2024</th><th>2025H1</th><th>2025</th><th>判断</th></tr>
+        <tr><td>营收</td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td>归母净利</td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td>毛利率</td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td>净利率</td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td>ROE</td><td></td><td></td><td></td><td></td><td></td></tr>
+    </table>
+
+    <h3>三大增长引擎</h3>
+    <div class="grid-3">
+        <div class="stat-card">
+            <div class="stat-label">主营基本盘</div>
+            <div class="stat-num positive">{{ENGINE_1_NAME}}</div>
+            <div style="font-size:0.85rem; color:var(--muted); margin-top:0.5rem;">{{ENGINE_1_DESC}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">中期成长</div>
+            <div class="stat-num warning">{{ENGINE_2_NAME}}</div>
+            <div style="font-size:0.85rem; color:var(--muted); margin-top:0.5rem;">{{ENGINE_2_DESC}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">长期想象</div>
+            <div class="stat-num highlight">{{ENGINE_3_NAME}}</div>
+            <div style="font-size:0.85rem; color:var(--muted); margin-top:0.5rem;">{{ENGINE_3_DESC}}</div>
+        </div>
+    </div>
+</div>
+
+<!-- ════════ 同行对照（v6.2 真实拉取）════════ -->
+<div class="card">
+    <h2>⚖️ 同行对照</h2>
+    <table>
+        <tr><th>Ticker</th><th>名称</th><th>当前价</th><th>市值</th><th>PE</th><th>结构</th></tr>
+        <tr style="background:rgba(108,159,255,0.05);"><td><strong>{{TARGET_TICKER}}</strong></td><td><strong>{{TARGET_NAME}}</strong></td><td><strong>{{TARGET_PRICE}}</strong></td><td><strong>{{TARGET_CAP}}</strong></td><td>{{TARGET_PE}}</td><td><span class="tag tag-yellow">{{TARGET_STRUCTURE}}</span></td></tr>
+        <tr><td>{{PEER1_TICKER}}</td><td>{{PEER1_NAME}}</td><td>{{PEER1_PRICE}}</td><td>{{PEER1_CAP}}</td><td>{{PEER1_PE}}</td><td><span class="tag {{PEER1_TAG}}">{{PEER1_STRUCTURE}}</span></td></tr>
+    </table>
+    <blockquote class="bull">
+        <strong>对标结论</strong>：{{PEER_INSIGHT}}
+    </blockquote>
+</div>
+
+<!-- ════════ 估值情景（必备）════════ -->
+<div class="card">
+    <h2>📊 估值情景（未来 12 个月）</h2>
+    <table>
+        <tr><th>情景</th><th>概率</th><th>假设</th><th>目标价</th><th>vs 当前</th></tr>
+        <tr><td>🔴 悲观</td><td>{{PROB_BEAR}}</td><td>{{ASSUM_BEAR}}</td><td><strong>{{PRICE_BEAR}}</strong></td><td class="negative">{{DIFF_BEAR}}</td></tr>
+        <tr style="background:rgba(108,159,255,0.05);"><td>⚪ <strong>中性</strong></td><td>{{PROB_BASE}}</td><td>{{ASSUM_BASE}}</td><td><strong>{{PRICE_BASE}}</strong></td><td>{{DIFF_BASE}}</td></tr>
+        <tr><td>🟢 乐观</td><td>{{PROB_BULL}}</td><td>{{ASSUM_BULL}}</td><td><strong>{{PRICE_BULL}}</strong></td><td class="positive">{{DIFF_BULL}}</td></tr>
+    </table>
+    <blockquote class="{{SCENARIO_BLOCKQUOTE_CLASS}}">
+        <strong>概率加权目标价</strong> = {{WEIGHTED_TARGET}}<br>
+        <strong>当前价隐含情景</strong>：{{IMPLIED_SCENARIO}}
+    </blockquote>
+</div>
+
+<!-- ════════ 技术面（江恩位 + 笔起点 — 不要假装跑 czsc）════════ -->
+<div class="card">
+    <h2>📈 技术面（v6.2 真实 K 线 + 江恩位）</h2>
+    <table>
+        <tr><th>维度</th><th>数值</th><th>判断</th></tr>
+        <tr><td>当前价</td>      <td>{{CURRENT_PRICE}}</td><td>—</td></tr>
+        <tr><td>30 日区间</td>   <td>{{30D_RANGE}}</td><td>{{RANGE_NOTE}}</td></tr>
+        <tr><td>江恩支撑</td>    <td>{{GANN_SUPPORT}}</td><td><strong>持仓底线</strong></td></tr>
+        <tr><td>江恩压力</td>    <td>{{GANN_RESISTANCE}}</td><td>突破带量看 {{BREAKOUT_TARGET}}</td></tr>
+        <tr><td>0.382 回撤位</td><td>{{FIB_382}}</td><td>右侧加仓位参考</td></tr>
+        <tr><td>笔起点</td>      <td>{{LEG_START}}</td><td>跌回此处 = 趋势完全破坏</td></tr>
+    </table>
+    <blockquote class="{{TECH_BLOCKQUOTE_CLASS}}">
+        <strong>结构判断</strong>：{{TECH_NOTE}}
+    </blockquote>
+</div>
+
+<!-- ════════ 5 号监工 audit ════════ -->
+<div class="card">
+    <h2>🔍 5 号监工 — 综合 audit</h2>
+    <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+        <div class="status-{{STATUS_CLASS}}">{{STATUS_TEXT}}</div>
+    </div>
+    <table>
+        <tr><th>检查项</th><th>结果</th><th>说明</th></tr>
+        <tr><td>基本面是否优良？</td>  <td><span class="tag tag-green">✅ 是</span></td><td>{{NOTE}}</td></tr>
+        <tr><td>事件驱动是否真实？</td><td><span class="tag tag-green">✅ 是</span></td><td>{{NOTE}}</td></tr>
+        <tr><td>估值是否合理？</td>    <td><span class="tag tag-yellow">⚠️</span></td><td>{{NOTE}}</td></tr>
+        <tr><td>位置是否安全？</td>    <td><span class="tag tag-red">❌</span></td><td>{{NOTE}}</td></tr>
+        <tr><td>风控红线？</td>        <td><span class="tag tag-green">✅</span></td><td>{{NOTE}}</td></tr>
+    </table>
+</div>
+
+<!-- ════════ Action Box（具体动作）════════ -->
+<div class="action-box">
+    <h2 style="margin-bottom:0.5rem;">🎯 给老板的具体动作</h2>
+    <div style="color:var(--muted); font-size:0.9rem;">{{ACTION_HINT}}</div>
+    <div class="action-options">
+        <div class="action-option bad">
+            <div class="label">{{OPT_1_LABEL}}</div>
+            <div class="desc">{{OPT_1_DESC}}</div>
+        </div>
+        <div class="action-option recommended">
+            <div class="label">{{OPT_2_LABEL}}</div>
+            <div class="desc">{{OPT_2_DESC}}</div>
+        </div>
+        <div class="action-option recommended">
+            <div class="label">{{OPT_3_LABEL}}</div>
+            <div class="desc">{{OPT_3_DESC}}</div>
+        </div>
+        <div class="action-option">
+            <div class="label">{{OPT_4_LABEL}}</div>
+            <div class="desc">{{OPT_4_DESC}}</div>
+        </div>
+    </div>
+</div>
+
+<!-- ════════ 后续跟踪节点 ════════ -->
+<div class="card">
+    <h2>📌 后续跟踪节点</h2>
+    <div class="catalyst-item bad">
+        <span>🚩</span><div><strong>{{TRACK_1_NAME}}</strong> — {{TRACK_1_NOTE}}</div>
+    </div>
+    <div class="catalyst-item pending">
+        <span>📊</span><div><strong>{{TRACK_2_NAME}}</strong> — {{TRACK_2_NOTE}}</div>
+    </div>
+</div>
+
+<!-- ════════ 信息来源 ════════ -->
+<div class="card">
+    <h2>📎 信息来源</h2>
+    <ul style="margin-left:1.5rem; font-size:0.88rem;">
+        <li><a href="{{URL}}">{{SOURCE_NAME}}</a></li>
+        <li>v6.2 雪球 K 线实拉（500 根日 K，confirm 当前价 {{CURRENT_PRICE}}）</li>
+    </ul>
+</div>
+
+<!-- ════════ Footer ════════ -->
+<div class="footer">
+    投研团队联合分析 | 形态：v6.2.1 skill agent ｜ 报告标准：深色酷炫主题（v6.2.1 标准化）<br>
+    数据采集：<code>scripts/cli/prepare_data.py --mode stock --target {{TICKER_RAW}}</code><br>
+    生成时间：{{DATE}} ｜ <strong>仅供研究参考，不构成投资建议；据此操作风险自负。</strong>
+</div>
+
+</div>
+</body>
+</html>

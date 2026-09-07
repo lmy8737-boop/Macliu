@@ -1,0 +1,113 @@
+{
+  "version": "1.0.0",
+  "default_route": "general_search",
+  "routes": [
+    {
+      "id": "local_only",
+      "priority": 120,
+      "all_groups": [
+        ["本地", "文件夹", "目录", "代码库", "workspace", "repo"],
+        ["搜索文件", "搜索.*文件", "查找文件", "搜代码", "rg\\b", "grep\\b"]
+      ],
+      "primary": "none",
+      "reason": "本地文件检索不属于联网路由"
+    },
+    {
+      "id": "article_research",
+      "priority": 115,
+      "all_groups": [
+        ["mp\\.weixin\\.qq\\.com", "zhihu\\.com", "xueqiu\\.com", "微信公众号", "知乎文章", "雪球文章"],
+        ["核实", "分析", "研究框架", "并入", "更新到", "是真是假"]
+      ],
+      "primary": "investment-search",
+      "supplements": ["wechat-article-to-markdown", "stock-data"],
+      "reason": "外部文章同时要求研究或核验时，归档只是补充步骤"
+    },
+    {
+      "id": "article_archive",
+      "priority": 110,
+      "all_groups": [
+        ["mp\\.weixin\\.qq\\.com", "zhihu\\.com", "xueqiu\\.com", "微信公众号", "知乎文章", "雪球文章"],
+        ["保存", "归档", "全文", "存知识库", "存笔记", "扔进.*inbox", "放进.*inbox"]
+      ],
+      "primary": "wechat-article-to-markdown",
+      "supplements": [],
+      "reason": "外部文章仅归档时走专用Markdown管线"
+    },
+    {
+      "id": "investment_verification",
+      "priority": 105,
+      "any_patterns": ["小作文", "传闻", "造谣", "真假", "核实", "原文说法", "找原文", "辟谣"],
+      "primary": "investment-search",
+      "supplements": ["stock-data", "AnySearch", "BRM"],
+      "reason": "投资传闻需要拆主张、找原始来源并补结构化数据"
+    },
+    {
+      "id": "financial_structured",
+      "priority": 100,
+      "any_patterns": ["股价", "行情", "K线", "市值", "\\bPE\\b", "\\bPB\\b", "\\bPS\\b", "估值", "财报", "资产负债表", "现金流", "资金流", "股东结构", "ETF", "期权链", "分红", "解禁", "龙虎榜"],
+      "primary": "stock-data",
+      "supplements": ["official-source-verification"],
+      "reason": "结构化金融数据由stock-data拥有"
+    },
+    {
+      "id": "sell_side_research",
+      "priority": 95,
+      "any_patterns": ["卖方研报", "机构研报", "调研纪要", "专家纪要", "业绩会纪要", "大摩.*报告", "高盛.*报告", "瑞银.*报告"],
+      "primary": "BRM",
+      "supplements": ["AnySearch", "official-source-verification"],
+      "reason": "研报和纪要先走BRM，公开原文再由搜索补充"
+    },
+    {
+      "id": "authenticated_interaction",
+      "priority": 90,
+      "any_patterns": ["登录后", "已登录", "用我的Chrome", "用我.*浏览器", "点击", "滚动", "上传", "截图", "验证码", "扫码登录", "内网"],
+      "primary": "web-access",
+      "supplements": ["Agent Reach platform backend"],
+      "reason": "需要用户浏览器状态或页面交互"
+    },
+    {
+      "id": "batch_crawl",
+      "priority": 85,
+      "any_patterns": ["批量抓", "批量爬", "抓取.*[1-9][0-9]{1,}", "翻页抓", "分页采集", "所有分页", "中断后继续", "导出.*CSV", "导出.*JSON", "定时爬", "全站抓"],
+      "primary": "Scrapling Spider",
+      "supplements": ["AnySearch discovery"],
+      "reason": "多页和可恢复采集使用工程化爬虫"
+    },
+    {
+      "id": "platform_content",
+      "priority": 80,
+      "any_patterns": ["YouTube", "油管", "B站", "哔哩哔哩", "RSS", "Atom", "V2EX", "GitHub", "Reddit", "Twitter", "小红书", "Instagram", "LinkedIn", "小宇宙"],
+      "primary": "Agent Reach",
+      "supplements": ["web-access"],
+      "reason": "平台内容优先使用平台原生健康后端"
+    },
+    {
+      "id": "technical_semantic_search",
+      "priority": 70,
+      "all_groups": [
+        ["英文", "English", "代码", "API", "GitHub", "技术文档", "论文"],
+        ["搜索", "查找", "找一下", "调研", "research"]
+      ],
+      "primary": "AnySearch",
+      "supplements": ["Agent Reach Exa", "official-source-verification"],
+      "reason": "通用发现先AnySearch，英文技术语义召回不足时补Exa"
+    },
+    {
+      "id": "known_url_fetch",
+      "priority": 60,
+      "any_patterns": ["https?://"],
+      "primary": "lightweight-fetch",
+      "supplements": ["AnySearch extract", "Jina Reader"],
+      "reason": "已知公开URL先轻量读取"
+    },
+    {
+      "id": "general_search",
+      "priority": 0,
+      "any_patterns": [".*"],
+      "primary": "AnySearch",
+      "supplements": ["built-in web", "Agent Reach Exa"],
+      "reason": "入口未知的一般联网搜索"
+    }
+  ]
+}

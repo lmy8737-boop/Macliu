@@ -1,0 +1,40 @@
+# Investment Team Skill v6.2 — 核心依赖（agent + bot 共用）
+# =================================================================
+# v6.2 重构：原本 akshare/pandas 等数据采集依赖只在 mattermost-bot/requirements.txt
+# 里写，导致 skill agent 形态跑不出真实数据。v6.2 起把数据层依赖提升到核心。
+#
+# 安装：
+#     pip install -r requirements.txt           # agent 形态
+#     pip install -r mattermost-bot/requirements.txt   # bot 形态额外加
+# =================================================================
+
+# ─── 核心数据采集（agent 形态必装）──────────────────────────────
+akshare>=1.13.0      # A股/港股/ETF 行情 + 财报 + 宏观；雪球 fallback 自动接管
+pandas>=1.5.0        # akshare 返回 DataFrame
+numpy>=1.23.0
+requests>=2.28.0     # 雪球 K 线 API
+
+# ─── 缠论引擎（强烈推荐）──────────────────────────────────────
+# 不装会自动 fallback 到 legacy/minimal 引擎，但缺 fractal/bi/center 字段
+czsc>=0.9.0
+
+# ─── 选美评分（无额外依赖，复用 pandas/numpy）────────────────────
+
+# ─── 配置文件解析 ─────────────────────────────────────────────
+PyYAML>=6.0          # industry_peers.yaml + audit/cycle_state 脚本
+
+# ─── 可选 ─────────────────────────────────────────────────────
+# FinRL 信号增强（4号灰色地带 AI 第二意见）
+# finrl>=0.3.0
+# stable-baselines3>=2.0.0
+# gymnasium>=0.28.0
+
+# 持仓 Excel 导入
+# openpyxl>=3.0.0
+
+# MySQL 持仓同步
+# pymysql>=1.0.0
+# cryptography>=3.4.0
+
+# 数据源 CLI（通过 npx 调用，无需 pip）
+# npx -y westock-data-clawhub@1.0.4

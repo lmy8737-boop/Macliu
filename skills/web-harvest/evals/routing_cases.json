@@ -1,0 +1,26 @@
+{
+  "skill_name": "web-harvest",
+  "evals": [
+    {"id": 1, "prompt": "查一下英伟达今天的股价、市值和最新PE", "expected_route": "financial_structured", "expected_primary": "stock-data"},
+    {"id": 2, "prompt": "把这篇微信公众号全文存进Inbox https://mp.weixin.qq.com/s/example", "expected_route": "article_archive", "expected_primary": "wechat-article-to-markdown"},
+    {"id": 3, "prompt": "网上传台积电砍单，这个小作文是真的假的，找原文核实", "expected_route": "investment_verification", "expected_primary": "investment-search"},
+    {"id": 4, "prompt": "找一下大摩最新的半导体设备报告", "expected_route": "sell_side_research", "expected_primary": "BRM"},
+    {"id": 5, "prompt": "用我已经登录的Chrome打开小红书并滚动读取收藏", "expected_route": "authenticated_interaction", "expected_primary": "web-access"},
+    {"id": 6, "prompt": "批量抓取这个目录下300篇公开文章并导出CSV", "expected_route": "batch_crawl", "expected_primary": "Scrapling Spider"},
+    {"id": 7, "prompt": "搜索YouTube上最近一个月关于HBM4的视频和字幕", "expected_route": "platform_content", "expected_primary": "Agent Reach"},
+    {"id": 8, "prompt": "订阅这个RSS并看看最近十篇更新", "expected_route": "platform_content", "expected_primary": "Agent Reach"},
+    {"id": 9, "prompt": "用英文搜索CUDA 13 API的技术文档和代码示例", "expected_route": "technical_semantic_search", "expected_primary": "AnySearch"},
+    {"id": 10, "prompt": "读取这篇公开网页 https://example.com/report", "expected_route": "known_url_fetch", "expected_primary": "lightweight-fetch"},
+    {"id": 11, "prompt": "查一下最近关于光模块供需的新消息", "expected_route": "general_search", "expected_primary": "AnySearch"},
+    {"id": 12, "prompt": "在本地代码库里搜索所有调用AnySearch的文件", "expected_route": "local_only", "expected_primary": "none"},
+    {"id": 13, "prompt": "查美光最新一季现金流和资产负债表", "expected_route": "financial_structured", "expected_primary": "stock-data"},
+    {"id": 14, "prompt": "雪球上有人说胜宏科技订单降价，帮我核实原文说法", "expected_route": "investment_verification", "expected_primary": "investment-search"},
+    {"id": 15, "prompt": "把这篇知乎文章归档到个人知识库 https://www.zhihu.com/question/example", "expected_route": "article_archive", "expected_primary": "wechat-article-to-markdown"},
+    {"id": 16, "prompt": "读取公司内网里的项目进度页面", "expected_route": "authenticated_interaction", "expected_primary": "web-access"},
+    {"id": 17, "prompt": "把这个网站所有分页抓下来，支持中断后继续", "expected_route": "batch_crawl", "expected_primary": "Scrapling Spider"},
+    {"id": 18, "prompt": "搜索GitHub里关于CXL memory pooling的仓库和Issue", "expected_route": "platform_content", "expected_primary": "Agent Reach"},
+    {"id": 19, "prompt": "找一下台积电官网最近发布的先进封装资料", "expected_route": "general_search", "expected_primary": "AnySearch"},
+    {"id": 20, "prompt": "查一下沪深300 ETF的持仓和资金流", "expected_route": "financial_structured", "expected_primary": "stock-data"},
+    {"id": 21, "prompt": "把这篇公众号全文保存，并核实里面的订单说法后并入研究框架 https://mp.weixin.qq.com/s/example", "expected_route": "article_research", "expected_primary": "investment-search"}
+  ]
+}
