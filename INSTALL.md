@@ -134,14 +134,24 @@ skills/investment-team-skill/.venv-czsc/bin/python skills/investment-team-skill/
 
 `skills/investment-team-skill`、`skills/zhiku-research`、`skills/research-data-verify`、`skills/quant-check`、`skills/stock-data`、`skills/web-harvest`、`skills/agent-reach` 这七个是本仓库自己维护的，跟着这个仓库 `git pull` 就会更新，不需要单独处理。
 
-`skills/web-access` 和 `skills/anysearch` 是按第 3 步用 `git clone` 装的两个独立第三方开源项目，**它们的更新不会跟着这个仓库自动同步**，需要单独拉取：
+`skills/web-access` 和 `skills/anysearch` 是按第 3 步用 `git clone` 装的两个独立第三方开源项目，**它们的更新不会跟着这个仓库自动同步**，需要单独检查。最省事的方式是跑仓库自带的检查脚本：
+
+```bash
+./scripts/upgrade-vendored-skills.sh              # 交互式：发现更新会问你要不要升级
+./scripts/upgrade-vendored-skills.sh --check-only  # 只报告落后情况，不动手
+./scripts/upgrade-vendored-skills.sh --yes         # 有更新直接升级，不用交互确认（适合agent自动执行）
+```
+
+这个脚本会：检查是否落后上游、列出落后的提交、本地有未提交改动时先自动 `git stash`（不会丢）、拉取更新、重装依赖、**实际跑一次搜索/健康检查确认真的能用**（不是只看"文件装上了"）。默认检查 `./skills/` 下的副本；如果你把这两个工具装在别的位置（比如全局共享目录），用 `SKILLS_DIR=<路径> ./scripts/upgrade-vendored-skills.sh` 指定。
+
+也可以手动做同样的事：
 
 ```bash
 git -C skills/web-access pull
 git -C skills/anysearch pull && pip install -r skills/anysearch/requirements.txt
 ```
 
-`AnySearch` 项目更新比较活跃，建议每隔一段时间跑一次上面这条命令；它的发布记录里出现过安全相关的修复（比如 API key 在 HTTP 重定向时可能泄漏的问题），是这三个外部依赖里最值得保持更新的一个。升级前可以看一眼 `skills/anysearch/CHANGELOG.md`（如果有）或 https://github.com/anysearch-ai/anysearch-skill/releases 确认这次更新有没有改动命令行参数格式。
+`AnySearch` 项目更新比较活跃，建议每隔一段时间检查一次；它的发布记录里出现过安全相关的修复（比如 API key 在 HTTP 重定向时可能泄漏的问题），是这三个外部依赖里最值得保持更新的一个。
 
 `agent-reach` 底层 CLI 是独立安装的全局工具，不在这个仓库管理范围内，升级方式看它自己的项目主页：https://github.com/Panniantong/Agent-Reach
 

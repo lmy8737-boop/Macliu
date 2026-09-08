@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.2.0 — 2026-09-08
+
+**新增**：`scripts/upgrade-vendored-skills.sh`——检查并升级 `web-access`、`AnySearch` 这两个第三方开源依赖的脚本。会自动 fetch 对比落后情况、本地有未提交改动先 stash、拉取更新、重装依赖，并**实际跑一次搜索/健康检查确认真的能用**（而不是只确认文件已更新）。支持 `--check-only`（只报告不升级）和 `--yes`（跳过交互确认，适合 agent 自动执行）。
+
+**验证记录**（2026-09-08）：本次审计发现 AnySearch 落后上游 2 个大版本（本地约 v2.1.0 → 上游 v3.1.1），中间 v3.0.1 修复过一个"API key 在 HTTP 重定向时可能泄漏"的安全问题；web-access 落后 2 个提交（v2.5.2 → v2.5.4）。已升级并用真实搜索/CDP连接请求验证通过。
+
+**已知遗留**：升级前 `anysearch_cli.py` 上有一份手工补丁（检测"响应看似成功实则是禁用/空结果"的情况），因上游 v3.1.0 已将 CLI 架构从 MCP/JSON-RPC 包装层重写为直连 REST，该补丁修复的旧代码路径已不存在——新架构通过结构化的 `code` 字段判断错误、`data.results` 为空时显式返回"No relevant results found."，等效保护已内建在上游实现里，判定为**不需要再补等价逻辑**。补丁已用 `git stash` 保留在本地 anysearch 仓库的 stash 历史中作为记录。
+
 ## v2.1.1 — 2026-09-08
 
 **修复**：`INSTALL.md` 里 AnySearch 的安装方式从"下载 zip 快照"改成 `git clone`——之前的方式装完之后无法用 `git pull` 拿到官方更新，且示例里写死的版本号（v2.1.0）已经过时（上游最新为 v3.1.1，之间有一次"HTTP 重定向可能导致 API key 泄漏"的安全修复）。改成 `git clone` 后和 `web-access` 一样可以直接 `git pull` 升级。
