@@ -1,5 +1,10 @@
 # Macliu 投研工作流
 
+> [!note] 挑一个适合你的版本
+> **这是"傻瓜化全自动版"**（`main` 分支 / [v2.3.0](https://github.com/lmy8737-boop/Macliu/releases/tag/v2.3.0)）：克隆下来就是一个能直接打开的 Obsidian 知识库，`INSTALL.md` 连 Obsidian 应用本身都会尝试自动装好。**适合从零开始、想开箱即用的场景**。
+>
+> 如果你**已经有自己的 Obsidian 知识库**，只想把这套研究方法论接进去、不想要额外的文件夹结构，用 [`methodology-only` 分支](https://github.com/lmy8737-boop/Macliu/tree/methodology-only)（对应 [v2.2.0](https://github.com/lmy8737-boop/Macliu/releases/tag/v2.2.0)）：`git clone -b methodology-only https://github.com/lmy8737-boop/Macliu.git`。
+
 一套用来约束 AI（或人）做投资研究的证据纪律：什么级别的信息能直接当结论用，什么时候必须停下来找人核实，写出来的研究怎么才能长期维护而不是越堆越乱的碎片笔记。
 
 不是荐股工具，不自动交易，不保证收益。它解决的是一个更基础的问题：**AI 写研究报告最容易出的问题不是"数据不够"，而是把没验证的信息、别人的观点、自己的预测，全部用同样确定的语气写出来**。这套工作流用几层强制性的检查点来防止这件事发生。

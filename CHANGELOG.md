@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.3.1 — 2026-09-08
+
+**新增**：正式给出两个版本供选择，打了 git tag 并新建了 `methodology-only` 分支：
+
+- **`main` 分支 / [v2.3.0](https://github.com/lmy8737-boop/Macliu/releases/tag/v2.3.0)（傻瓜化全自动版）**：本仓库即 Obsidian 知识库，`INSTALL.md` 含 Obsidian 自动部署，适合从零开始的客户。
+- **`methodology-only` 分支 / [v2.2.0](https://github.com/lmy8737-boop/Macliu/releases/tag/v2.2.0)（方法论版）**：不含知识库目录骨架，`INSTALL.md` 没有 Obsidian 部署步骤，适合已有自己知识库、只想接入这套研究纪律的客户；README 里说明了怎么把方法论接到用户自己已有的目录结构上。
+
+两个版本共享同一套核心方法论（`SKILL.md`/`references/`/`skills/`/`templates/`）；未来对方法论本身的修复会视情况同步到两条线，知识库骨架相关的改动只影响 `main`。README 顶部现在会提示用户按自己的情况选版本。
+
 ## v2.3.0 — 2026-09-08
 
 **新增**：这个仓库现在同时是一个可以直接用 Obsidian 打开的知识库，而不只是一堆方法论文档。
