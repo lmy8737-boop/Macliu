@@ -44,7 +44,7 @@ skills/                七个可以直接加载运行的 skill（真实实现，
   stock-data/                 A/H/美股结构化数据统一 CLI（免费数据源）
   web-harvest/                联网搜索/采集的路由决策层
   agent-reach/                多平台内容抓取路由文档
-  (web-access/、anysearch/ 装完 INSTALL.md 第3步后会出现在这里——这两个是第三方开源项目，不随仓库一起分发，由安装步骤自动拉取)
+  (web-access/、anysearch/ 装完 INSTALL.md 第4步后会出现在这里——这两个是第三方开源项目，不随仓库一起分发，由安装步骤自动拉取)
 templates/             公司研究、行业主题、快速判断等模板
 examples/               一个完整的虚构演示案例
 00_首页/                知识库导航：投研知识库首页.md、新手上路.md（给人看的，不是给agent看的规则）
@@ -70,7 +70,7 @@ examples/               一个完整的虚构演示案例
 
 ### 需要接入的能力
 
-完整的安装步骤、每一步是否必需、装不上怎么办，全部写在 [`INSTALL.md`](INSTALL.md) 里，这是唯一权威的安装说明。简单说：核心方法论和结构化行情数据（`stock-data`）装完 Python 依赖就能全功能免费使用；`web-access`、`AnySearch` 这两个联网采集工具是独立的第三方开源项目，`INSTALL.md` 第 3 步一条命令自动拉取安装；`Scrapling`（批量采集）需要装一次浏览器内核；`Firecrawl`（结构化网页提取）和研报/纪要数据源（示例里的 BRM）需要你自己的付费账号，没有就跳过，不影响其他部分。
+完整的安装步骤、每一步是否必需、装不上怎么办，全部写在 [`INSTALL.md`](INSTALL.md) 里，这是唯一权威的安装说明。简单说：核心方法论和结构化行情数据（`stock-data`）装完 Python 依赖就能全功能免费使用；`web-access`、`AnySearch` 这两个联网采集工具是独立的第三方开源项目，`INSTALL.md` 第 4 步一条命令自动拉取安装；`Scrapling`（批量采集）需要装一次浏览器内核；`Firecrawl`（结构化网页提取）和研报/纪要数据源（示例里的 BRM）需要你自己的付费账号，没有就跳过，不影响其他部分。
 
 数据职责的整体设计思路见 [`references/数据源能力契约.md`](references/数据源能力契约.md)。
 

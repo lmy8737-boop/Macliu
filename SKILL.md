@@ -61,11 +61,11 @@ updated: "2026-09-08"
 | `skills/quant-check/` | 给主观打分体系配 IC 检验和简单规则回测的统计校验工具 |
 | `skills/stock-data/` | A/H/美股结构化行情、财务、公告、资金流数据的统一 CLI（多数据源 fallback：akshare/雪球/baostock/东方财富等免费接口，无需付费订阅即可用） |
 | `skills/web-harvest/` | 联网搜索与网络采集的路由决策层：什么任务该用什么通道、怎么分级降级、怎么保证证据能闭环到原文 |
-| `skills/agent-reach/` | 调用第三方 `Agent Reach` CLI 抓取 YouTube/B站/GitHub/RSS/V2EX 等平台内容的路由文档（CLI 本身需按 `INSTALL.md` 第 3 步单独安装） |
+| `skills/agent-reach/` | 调用第三方 `Agent Reach` CLI 抓取 YouTube/B站/GitHub/RSS/V2EX 等平台内容的路由文档（CLI 本身需按 `INSTALL.md` 第 4 步单独安装） |
 
 `skills/` 下这七个是你可以直接放进 Claude Code / 其他支持类似 skill 机制的 agent 环境里加载运行的真实实现，不是概念说明；`references/` 是配套的方法论解释，两者互相引用，建议一起看。
 
-`web-access`、`anysearch` 这两个联网采集工具是独立的第三方开源项目（不是本包自研），按 [`INSTALL.md`](INSTALL.md) 第 3 步一条命令即可装好，装完后会出现在 `skills/web-access/`、`skills/anysearch/` 目录下，和上面七个一起被 `web-harvest` 统一路由调用。
+`web-access`、`anysearch` 这两个联网采集工具是独立的第三方开源项目（不是本包自研），按 [`INSTALL.md`](INSTALL.md) 第 4 步一条命令即可装好，装完后会出现在 `skills/web-access/`、`skills/anysearch/` 目录下，和上面七个一起被 `web-harvest` 统一路由调用。
 
 ### 模板与示例
 
@@ -98,7 +98,7 @@ updated: "2026-09-08"
 
 - **不含具体的模型调度/派发基础设施**：用什么模型、怎么在多个模型间路由任务，是使用者自己的执行层配置，和投研方法论本身无关，本包不涉及。
 - **不含付费数据商的私有集成**（如卖方研报/纪要数据库的具体 API）：这类数据源因人而异，本包只描述"这一层证据职责需要什么能力"，具体接哪家自己决定；缺少这类数据源不影响其余方法论生效，只是卖方观点（P2）这一层证据会薄一些。
-- **不含需要付费账号的第三方服务本体**（Firecrawl API、独立付费搜索订阅）：这些服务需要使用者自己的账号和 Key，本包只负责路由到它们，见 `INSTALL.md` 第 4 步。
+- **不含需要付费账号的第三方服务本体**（Firecrawl API、独立付费搜索订阅）：这些服务需要使用者自己的账号和 Key，本包只负责路由到它们，见 `INSTALL.md` 第 5 步。
 - **不含自动下单/自动调仓**：任何交易相关的判断都是"建议 + 人工裁决清单"，不存在自动执行环节，见《团队协作与角色调度》的 G/Y/R 风险门。
 - **不含真实持仓、真实研究正文或个人身份信息**：`examples/` 里的案例是完全虚构的演示材料。
 
