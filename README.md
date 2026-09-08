@@ -14,19 +14,30 @@
 
 完整方法论说明在 [`SKILL.md`](SKILL.md)，那是这个包的主入口——不管你是人还是 agent，都从那份文件开始读。
 
+## 30 秒装好（发给朋友直接用）
+
+克隆这个仓库，然后把下面这句话丢给你自己的 AI agent（Claude Code、Codex、Cursor 等任何能读文件、能跑命令的 agent 都行）：
+
+> 读这个仓库的 `INSTALL.md` 并严格按步骤自动执行到底，每一步完成后汇报状态（成功/跳过/需要我提供的信息），全部装完后跑一遍 `验收清单.md` 里的测试。
+
+agent 会自己装好 Python 依赖、拉取需要的第三方开源采集工具、跑健康检查，装不上的可选组件会明确告诉你原因而不是卡住。核心方法论 + 结构化行情数据这两层零成本、零账号即可用；只有 Firecrawl（结构化网页提取）这类需要付费账号的服务需要你自己去注册，没有就跳过，不影响其他功能。
+
 ## 这个仓库里有什么
 
 ```
 SKILL.md              主入口：六步流程、G/Y/R、角色调度、目录导航
+INSTALL.md             一键安装playbook，讲给agent听的
 AGENTS.md             给按 AGENTS.md 约定读取规则的 agent 用的薄指针
 references/           方法论说明文档（为什么这样设计、字段怎么定义）
-skills/                六个可以直接加载运行的 skill（真实实现，不是摘要）
+skills/                七个可以直接加载运行的 skill（真实实现，不是摘要）
   investment-team-skill/   11 角色委员会的完整编排逻辑
   zhiku-research/           把研究写成可长期更新的知识库笔记
   research-data-verify/     证据分级的权威定义与验证脚本
   quant-check/               给主观打分体系做统计回测校验
   stock-data/                 A/H/美股结构化数据统一 CLI（免费数据源）
   web-harvest/                联网搜索/采集的路由决策层
+  agent-reach/                多平台内容抓取路由文档
+  (web-access/、anysearch/ 装完 INSTALL.md 第3步后会出现在这里——这两个是第三方开源项目，不随仓库一起分发，由安装步骤自动拉取)
 templates/             公司研究、行业主题、快速判断等模板
 examples/               一个完整的虚构演示案例
 ```
@@ -37,9 +48,9 @@ examples/               一个完整的虚构演示案例
 
 从 `SKILL.md` 开始读，跟着"五步上手路线图"走。想直接看一个完整案例长什么样，看 `examples/示例_行业快速判断.md`。想动手写研究，从 `templates/` 里选一个模板开始。
 
-### 如果你要让一个 AI agent 学会这套方法论
+### 如果你要让一个 AI agent 学会并装好这套方法论
 
-把整个仓库（或者你需要的子集）放进 agent 能读到的目录，然后让它读 `SKILL.md`。具体接入方式取决于你用的 agent：
+最省事的方式就是上面"30 秒装好"那句话——把安装这件事也交给 agent 自己完成。如果你想手动控制安装过程，或者只想要方法论文档不想要可运行的 skill，可以这样做：
 
 - **Claude Code / 其他支持 Skill 机制的 agent**：把仓库整体（或者只要 `skills/` 下某几个子目录）放进你的 skills 目录，agent 会按 `SKILL.md` 的 frontmatter 识别并加载。
 - **用 `AGENTS.md` 约定的 agent**（如 Codex 风格的运行时）：仓库根目录已经有一份 `AGENTS.md`，指向 `SKILL.md` 正文。
@@ -47,16 +58,16 @@ examples/               一个完整的虚构演示案例
 
 ### 需要接入的能力
 
-`skills/stock-data` 和 `skills/web-harvest` 依赖一些第三方免费数据源/库（具体见各自 `SKILL.md` 和 `requirements.txt`），首次使用前需要按各自文档做环境准备（比如 `pip install -r requirements.txt`）。`skills/web-harvest` 提到的部分外部通道（AnySearch、Agent Reach、web-access、Scrapling、Firecrawl 等）不包含在本仓库里，属于可选的外部依赖——没有也不影响核心方法论，只是会少几条搜索/采集通道，用你自己顺手的搜索工具替代即可。
+完整的安装步骤、每一步是否必需、装不上怎么办，全部写在 [`INSTALL.md`](INSTALL.md) 里，这是唯一权威的安装说明。简单说：核心方法论和结构化行情数据（`stock-data`）装完 Python 依赖就能全功能免费使用；`web-access`、`AnySearch` 这两个联网采集工具是独立的第三方开源项目，`INSTALL.md` 第 3 步一条命令自动拉取安装；`Scrapling`（批量采集）需要装一次浏览器内核；`Firecrawl`（结构化网页提取）和研报/纪要数据源（示例里的 BRM）需要你自己的付费账号，没有就跳过，不影响其他部分。
 
-`skills/investment-team-skill` 里的缠论/DK 技术信号计算脚本依赖一个独立的 Python 虚拟环境（`requirements.txt` 里的 `czsc` 包），只有涉及真实交易决策时才会用到；纯粹的公司/行业研究不需要装这些。
-
-详见 [`references/数据源能力契约.md`](references/数据源能力契约.md)。
+数据职责的整体设计思路见 [`references/数据源能力契约.md`](references/数据源能力契约.md)。
 
 ## 刻意没放进来的东西
 
 - 具体用什么模型、怎么在多个模型间调度任务——这是使用者自己的执行层配置，不是投研方法论的一部分。
 - 付费数据商的私有集成（比如卖方研报/纪要数据库的具体接口）——因人而异，本包只说明"这一层证据需要什么能力"，具体接哪家自己定。
+- 需要付费账号的第三方服务本体（Firecrawl API 等）——这些服务需要使用者自己的账号和 Key，本包只负责路由到它们。
+- 第三方开源采集工具的源码本体（`web-access`、`AnySearch`）——这两个不是我写的，是独立维护的开源项目，直接分发它们的代码既不尊重原作者的更新节奏也容易变陈旧，所以改成"一条命令自动拉取最新版"，见 `INSTALL.md`。
 - 自动下单/自动调仓——任何交易动作都停在"建议 + 人工裁决清单"，不存在自动执行。
 - 真实持仓、真实研究正文、任何个人身份信息——`examples/` 里的案例是完全虚构的演示材料。
 
