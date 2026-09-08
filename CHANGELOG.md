@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.1 — 2026-09-08
+
+**修复**：`INSTALL.md` 里 AnySearch 的安装方式从"下载 zip 快照"改成 `git clone`——之前的方式装完之后无法用 `git pull` 拿到官方更新，且示例里写死的版本号（v2.1.0）已经过时（上游最新为 v3.1.1，之间有一次"HTTP 重定向可能导致 API key 泄漏"的安全修复）。改成 `git clone` 后和 `web-access` 一样可以直接 `git pull` 升级。
+
+**新增**：`INSTALL.md` 增加"以后怎么升级"一节，说明哪些 skill 跟着本仓库走、哪些需要单独 `git pull`。
+
 ## v2.1.0 — 2026-09-08
 
 **新增**：

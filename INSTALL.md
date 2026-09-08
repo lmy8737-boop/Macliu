@@ -75,12 +75,10 @@ node skills/web-access/scripts/check-deps.mjs
 
 ### 3.2 AnySearch（实时搜索，Apache 2.0 协议，匿名免费额度）
 
+用 `git clone` 而不是下载 zip——这样以后能直接 `git pull` 拿到官方更新，AnySearch 项目自己发新版本时也是这样引导用户升级的：
+
 ```bash
-# 替换成 https://github.com/anysearch-ai/anysearch-skill/releases 上的最新 tag
-curl -L -o anysearch-skill.zip https://github.com/anysearch-ai/anysearch-skill/archive/refs/heads/main.zip
-unzip anysearch-skill.zip -d /tmp/anysearch-unzip
-mv /tmp/anysearch-unzip/anysearch-skill-* skills/anysearch
-rm anysearch-skill.zip
+git clone https://github.com/anysearch-ai/anysearch-skill.git skills/anysearch
 pip install -r skills/anysearch/requirements.txt
 ```
 
@@ -131,6 +129,21 @@ skills/investment-team-skill/.venv-czsc/bin/python skills/investment-team-skill/
 ```
 
 再按《验收清单.md》跑一遍方法论理解度测试，确认 agent 不仅"装好了工具"，也真的理解这套研究方法论怎么用。
+
+## 以后怎么升级
+
+`skills/investment-team-skill`、`skills/zhiku-research`、`skills/research-data-verify`、`skills/quant-check`、`skills/stock-data`、`skills/web-harvest`、`skills/agent-reach` 这七个是本仓库自己维护的，跟着这个仓库 `git pull` 就会更新，不需要单独处理。
+
+`skills/web-access` 和 `skills/anysearch` 是按第 3 步用 `git clone` 装的两个独立第三方开源项目，**它们的更新不会跟着这个仓库自动同步**，需要单独拉取：
+
+```bash
+git -C skills/web-access pull
+git -C skills/anysearch pull && pip install -r skills/anysearch/requirements.txt
+```
+
+`AnySearch` 项目更新比较活跃，建议每隔一段时间跑一次上面这条命令；它的发布记录里出现过安全相关的修复（比如 API key 在 HTTP 重定向时可能泄漏的问题），是这三个外部依赖里最值得保持更新的一个。升级前可以看一眼 `skills/anysearch/CHANGELOG.md`（如果有）或 https://github.com/anysearch-ai/anysearch-skill/releases 确认这次更新有没有改动命令行参数格式。
+
+`agent-reach` 底层 CLI 是独立安装的全局工具，不在这个仓库管理范围内，升级方式看它自己的项目主页：https://github.com/Panniantong/Agent-Reach
 
 ## 装不上某一步怎么办
 
