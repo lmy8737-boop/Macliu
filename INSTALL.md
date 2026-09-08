@@ -9,6 +9,7 @@
 
 | 层级 | 内容 | 是否零配置可用 |
 |---|---|---|
+| 知识库 | Obsidian + 本仓库作为 vault，`00_首页/`、`03_公司研究/` 等目录已就位 | ✅ 第 0 步一条龙装好；Obsidian 应用本身如果自动安装失败，需要手动点一次安装包 |
 | 方法论 | 六步流程、G/Y/R、11角色委员会、证据分级、写库规范 | ✅ 纯文档，读了就能用，不需要装任何东西 |
 | 结构化数据 | `stock-data`（A/H/美股行情财报） | ✅ 装完 Python 依赖即可，全部走免费数据源 |
 | 联网采集路由 | `web-harvest` | ✅ 装完依赖即用内置联网工具；外部通道锦上添花 |
@@ -24,6 +25,56 @@
 - Python 3.10+，能执行 `pip install`
 - 如果需要 `web-access`（真实浏览器操作）：Node.js 22+
 - 网络能访问 GitHub、PyPI（装 Python 包和克隆下面几个第三方仓库都需要）
+
+## 第 0 步：部署 Obsidian 知识库
+
+**目标：这个仓库克隆下来的文件夹，本身就是一个可以直接用的 Obsidian 知识库。** 这一步做完，用户打开 Obsidian 就能看到 `00_首页/`、`03_公司研究/` 等目录，可以直接开始研究，不需要自己再建一个 vault、抄一遍规则。
+
+### 0.1 装 Obsidian 应用本身
+
+**先检查是否已经装过**：macOS 看 `/Applications/Obsidian.app` 是否存在；Windows 看开始菜单或 `winget list --id Obsidian.Obsidian`；已装过跳到 0.2。
+
+没装过时，按当前系统尝试自动安装：
+
+```bash
+# macOS（需要先装 Homebrew：https://brew.sh）
+brew install --cask obsidian
+
+# Windows（PowerShell，Windows 10/11 自带 winget）
+winget install -e --id Obsidian.Obsidian
+
+# Linux（任选其一，取决于发行版用哪个包管理）
+flatpak install -y flathub md.obsidian.Obsidian
+# 或
+sudo snap install obsidian --classic
+```
+
+**如果上面的命令都跑不通**（没装 Homebrew/winget 不可用/是不支持 flatpak 和 snap 的发行版）：不要卡在这一步反复试。直接告诉用户——"请打开 https://obsidian.md/download 下载安装包并安装，装完后告诉我继续"，然后停下来等用户确认装完，再继续 0.2。这是唯一允许要求用户手动操作的一步。
+
+### 0.2 把这个仓库当 vault 打开
+
+Obsidian 装好后，尝试用 URI 直接打开这个文件夹作为 vault（`<本仓库的本地绝对路径>` 替换成实际克隆路径）：
+
+```bash
+# macOS
+open "obsidian://open?path=<本仓库的本地绝对路径>"
+
+# Windows（PowerShell）
+Start-Process "obsidian://open?path=<本仓库的本地绝对路径>"
+
+# Linux
+xdg-open "obsidian://open?path=<本仓库的本地绝对路径>"
+```
+
+路径里有空格或中文时记得做 URL 编码（空格→`%20`），或者直接把命令交给用户在终端里跑一次。
+
+**如果 URI 没有自动弹出 Obsidian 或没有正确识别路径**（比如 Obsidian 是第一次启动、还没完成初始设置）：告诉用户手动做——"打开 Obsidian → 左下角『Open folder as vault』→ 选择刚才克隆的这个文件夹"，两次点击，不复杂。
+
+### 0.3 确认知识库能用
+
+打开后应该能在 Obsidian 左侧文件树看到 `00_首页`、`00_Inbox`、`01_每日投研`、`02_资料收集`、`03_公司研究`、`04_行业研究`、`05_投资主题`、`07_输出与报告`、`09_附件` 这些目录，以及 `SKILL.md`。打开 `00_首页/新手上路.md` 确认能正常渲染。
+
+这一步做完，后面的第 1-5 步是给"帮这套系统干活的 agent"装能力（数据源、联网采集），不影响用户已经可以在 Obsidian 里跟 agent 对话开始研究——两件事可以并行，不需要严格先后顺序，但建议先做完第 0 步让用户能立刻上手，再慢慢装后面的可选能力。
 
 ## 第 1 步：装核心六个 skill 的 Python 依赖
 
@@ -159,6 +210,7 @@ git -C skills/anysearch pull && pip install -r skills/anysearch/requirements.txt
 
 **不要卡在某一个可选组件上反复重试。** 按这个优先级判断：
 
-1. 第 1 步（核心方法论 + 行情数据）失败 → 必须解决，否则整套系统跑不起来，检查 Python 版本和网络。
-2. 第 2-4 步任何一步失败 → 记录下来告诉用户"这个可选能力没装上，原因是 X"，然后继续用其他能力工作，不要因为一个可选组件卡住整个安装流程。
-3. Firecrawl / BRM 等价物没有账号 → 这是预期状态，不是错误，直接跳过，在后续研究中如实说明"这层证据数据源缺失"即可。
+1. 第 0 步（Obsidian 应用本体）自动安装失败 → 这是唯一预期需要用户手动点一下的环节，不是错误，说清楚让用户去 https://obsidian.md/download 装，装完继续，不要反复重试自动安装命令。
+2. 第 1 步（核心方法论 + 行情数据）失败 → 必须解决，否则整套系统跑不起来，检查 Python 版本和网络。
+3. 第 2-4 步任何一步失败 → 记录下来告诉用户"这个可选能力没装上，原因是 X"，然后继续用其他能力工作，不要因为一个可选组件卡住整个安装流程。
+4. Firecrawl / BRM 等价物没有账号 → 这是预期状态，不是错误，直接跳过，在后续研究中如实说明"这层证据数据源缺失"即可。
