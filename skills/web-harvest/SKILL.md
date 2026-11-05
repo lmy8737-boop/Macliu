@@ -1,11 +1,13 @@
 ---
 name: web-harvest
 description: 全局联网搜索与网络采集的唯一总路由。凡是搜索互联网、查最新信息、事实核验、找原文、读取URL、平台内容检索、浏览器登录态、网页交互、批量抓取、反爬处理、RSS/视频/社交/GitHub搜索或外部文章采集，都先使用本 skill 决定具体通道。它统一编排 AnySearch、Agent Reach/Exa、内置web、web-access、Scrapling、stock-data及外部文章采集 skill；其他总规则只应指向本 skill，不应复制分流规则。
-version: 3.3.0
-updated: 2026-09-07
+version: 3.3.1
+updated: 2026-09-08
 ---
 
 # Web Harvest
+
+v3.3.1: 健康检查兼容 AnySearch REST CLI 的空成功结果；`No relevant results found.` 记为 `empty`，不代表服务故障。协议回归统一放在 `tests/test_response_contract.py`，不依赖已废弃的 MCP 客户端内部函数；搜索分流优先级不变。
 
 > [!note] 关于本文提到的外部技能
 > 本文档里提到的 `AnySearch`、`Agent Reach`、`web-access`、`Scrapling`、`pdf`、`wechat-article-to-markdown`、`Firecrawl` 都是**独立的搜索/采集子技能或第三方服务，本包不包含它们的实现**——本包只含 `web-harvest` 这一层"路由决策逻辑"本身。你可以：①自己实现/接入等价能力（比如换成你自己顺手的搜索 API、浏览器自动化工具），②只保留内置联网工具作为兜底，暂时跳过路由表里指向这些外部技能的分支。核心方法论（先判断任务形态、按"便宜可靠优先、失败再升级"分配通道、证据必须闭环到原文）不依赖这些具体工具名。

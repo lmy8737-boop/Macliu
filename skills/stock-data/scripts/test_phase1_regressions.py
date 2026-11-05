@@ -21,12 +21,11 @@ def load_module(name: str, path: Path):
 
 
 stock = load_module("phase1_stock_data", Path(__file__).with_name("stock_data_cli.py"))
-anysearch = load_module(
-    "phase1_anysearch", SKILLS / "anysearch" / "scripts" / "anysearch_cli.py"
-)
+launcher = load_module("phase1_stock_data_launcher", Path(__file__).with_name("run_stock_data.py"))
 doctor = load_module(
     "phase1_web_harvest_doctor", SKILLS / "web-harvest" / "scripts" / "doctor.py"
 )
+# AnySearch REST protocol contracts are owned by web-harvest/tests/test_response_contract.py.
 
 
 class FakeResponse:
@@ -45,60 +44,86 @@ class FakeResponse:
         return self.payload
 
 
-def quote(source, market, code, price, market_at="2026-09-04T15:00:00"):
-    return {
+def quote(
+    source, market, code, price, market_at="2026-09-04T15:00:00",
+    retrieved_at="2026-09-04T07:00:01Z", **metadata,
+):
+    payload = {
         "source": source,
         "market": market,
         "code": code,
         "price": price,
         "market_at": market_at,
-        "retrieved_at": "2026-09-04T07:00:01Z",
+        "retrieved_at": retrieved_at,
+    }
+    payload.update(metadata)
+    return payload
+
+
+def session(opened, closed, break_start=None, break_end=None):
+    parse = lambda value: stock._parse_aware_datetime(value) if value else None
+    return {
+        "date": opened[:10], "open": parse(opened), "close": parse(closed),
+        "break_start": parse(break_start), "break_end": parse(break_end),
+    }
+
+
+def bar(date, close=10.0):
+    return {
+        "date": date, "open": close - 0.5, "high": close + 1,
+        "low": close - 1, "close": close, "volume": 100,
     }
 
 
 class QuoteTests(unittest.TestCase):
     def test_primary_exception_uses_same_fallback_path(self):
         symbols = [stock.normalize_ticker("AAPL")]
-        with mock.patch.object(stock, "tencent_quotes", side_effect=RuntimeError("primary down")), \
-             mock.patch.object(stock, "yahoo_quotes", return_value={
-                 "AAPL": quote("Yahoo", "us", "AAPL", 250.0)
+        with mock.patch.object(stock, "yahoo_quotes", side_effect=RuntimeError("primary down")), \
+             mock.patch.object(stock, "tencent_quotes", return_value={
+                 "AAPL": quote("Tencent", "us", "AAPL", 250.0)
              }):
             report, exit_code = stock.build_quote_report(symbols)
         self.assertEqual(exit_code, 0)
-        self.assertEqual(report["quotes"]["AAPL"]["source"], "Yahoo")
+        self.assertEqual(report["quotes"]["AAPL"]["source"], "Tencent")
         self.assertEqual(report["quotes"]["AAPL"]["status"], "ok")
         self.assertEqual(report["quotes"]["AAPL"]["reason_code"], "fallback_after_primary_error")
+        self.assertEqual(report["quotes"]["AAPL"]["freshness_status"], "unknown")
 
-    def test_missing_key_field_and_empty_price_both_fallback(self):
+    def test_missing_market_time_is_acquired_but_price_missing_falls_back(self):
         symbols = [stock.normalize_ticker("AAPL"), stock.normalize_ticker("MSFT")]
         primary = {
-            "AAPL": quote("Tencent", "us", "AAPL", 250.0, market_at=None),
-            "MSFT": quote("Tencent", "us", "MSFT", None),
+            "AAPL": quote("Yahoo", "us", "AAPL", 250.0, market_at=None),
+            "MSFT": quote("Yahoo", "us", "MSFT", None),
         }
         fallback = {
-            "AAPL": quote("Yahoo", "us", "AAPL", 251.0),
-            "MSFT": quote("Yahoo", "us", "MSFT", 501.0),
+            "AAPL": quote("Tencent", "us", "AAPL", 251.0),
+            "MSFT": quote("Tencent", "us", "MSFT", 501.0),
         }
-        with mock.patch.object(stock, "tencent_quotes", return_value=primary), \
-             mock.patch.object(stock, "yahoo_quotes", return_value=fallback):
+        with mock.patch.object(stock, "yahoo_quotes", return_value=primary), \
+             mock.patch.object(stock, "tencent_quotes", return_value=fallback):
             report, exit_code = stock.build_quote_report(symbols)
         self.assertEqual(exit_code, 0)
-        self.assertEqual(report["quotes"]["AAPL"]["reason_code"], "fallback_after_market_at_missing")
+        self.assertEqual(report["quotes"]["AAPL"]["reason_code"], "primary_ok")
+        self.assertEqual(report["quotes"]["AAPL"]["acquisition_status"], "ok")
+        self.assertEqual(report["quotes"]["AAPL"]["freshness_status"], "unknown")
+        self.assertFalse(report["quotes"]["AAPL"]["t0_eligible"])
         self.assertEqual(report["quotes"]["MSFT"]["reason_code"], "fallback_after_price_missing")
 
     def test_mixed_success_failure_is_explicit(self):
         symbols = [stock.normalize_ticker("AAPL"), stock.normalize_ticker("MSFT")]
         with mock.patch.object(stock, "tencent_quotes", return_value={
-                 "AAPL": quote("Tencent", "us", "AAPL", 250.0)
+                 "MSFT": quote("Tencent", "us", "MSFT", None)
              }), mock.patch.object(stock, "yahoo_quotes", return_value={
-                 "MSFT": quote("Yahoo", "us", "MSFT", None)
+                 "AAPL": quote("Yahoo", "us", "AAPL", 250.0),
+                 "MSFT": quote("Yahoo", "us", "MSFT", None),
              }):
             report, exit_code = stock.build_quote_report(symbols)
         self.assertEqual(exit_code, 0)
         self.assertEqual(report["status"], "partial")
         self.assertEqual(report["quotes"]["AAPL"]["status"], "ok")
         self.assertEqual(report["quotes"]["MSFT"]["status"], "error")
-        self.assertEqual(report["as_of"], "2026-09-04T15:00:00")
+        self.assertIsNone(report["as_of"])
+        self.assertEqual(report["as_of_reason_code"], "no_certified_market_time")
 
     def test_all_failed_returns_nonzero(self):
         symbols = [stock.normalize_ticker("AAPL")]
@@ -108,6 +133,373 @@ class QuoteTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(report["status"], "error")
         self.assertIsNone(report["as_of"])
+
+    def test_a_h_us_cross_timezone_intraday_freshness(self):
+        cases = [
+            ("cn", "Asia/Shanghai", "XSHG", "2026-09-07T10:00:00+08:00",
+             "2026-09-07T02:05:00Z", "2026-09-07T01:30:00Z", "2026-09-07T07:00:00Z"),
+            ("hk", "Asia/Hong_Kong", "XHKG", "2026-09-07T10:00:00+08:00",
+             "2026-09-07T02:05:00Z", "2026-09-07T01:30:00Z", "2026-09-07T08:00:00Z"),
+            ("us", "America/New_York", "XNYS", "2026-09-07T14:00:00Z",
+             "2026-09-07T14:05:00Z", "2026-09-07T13:30:00Z", "2026-09-07T20:00:00Z"),
+        ]
+        for market, timezone, calendar, market_at, retrieved_at, opened, closed in cases:
+            payload = quote(
+                "source", market, "code", 10, market_at, retrieved_at,
+                market_timezone=timezone, calendar_name=calendar,
+            )
+            with self.subTest(market=market), mock.patch.object(
+                stock, "_market_calendar_sessions",
+                return_value=([session(opened, closed)], "test_calendar"),
+            ):
+                result = stock._quote_freshness(payload)
+            self.assertEqual(result["freshness_status"], "fresh")
+            self.assertTrue(result["t0_eligible"])
+
+    def test_latest_close_on_weekend_or_holiday_is_calendar_driven(self):
+        payload = quote(
+            "Tencent", "cn", "600519", 10, "2026-09-04T15:00:00+08:00",
+            "2026-09-06T04:00:00Z", market_timezone="Asia/Shanghai",
+            calendar_name="XSHG",
+        )
+        friday = session("2026-09-04T01:30:00Z", "2026-09-04T07:00:00Z")
+        with mock.patch.object(
+            stock, "_market_calendar_sessions", return_value=([friday], "test_calendar")
+        ):
+            result = stock._quote_freshness(payload)
+        self.assertEqual(result["freshness_status"], "latest_close")
+        self.assertEqual(result["freshness_reason_code"], "latest_completed_session")
+        self.assertTrue(result["t0_eligible"])
+
+    def test_pre_open_quote_cannot_be_fresh_after_open(self):
+        trading = session("2026-09-07T01:30:00Z", "2026-09-07T07:00:00Z")
+        payload = quote(
+            "Tencent", "cn", "x", 1, "2026-09-07T09:29:00+08:00",
+            "2026-09-07T01:31:00Z", market_timezone="Asia/Shanghai",
+            calendar_name="XSHG",
+        )
+        with mock.patch.object(
+            stock, "_market_calendar_sessions", return_value=([trading], "test_calendar")
+        ):
+            result = stock._quote_freshness(payload)
+        self.assertEqual(result["freshness_status"], "unknown")
+        self.assertEqual(result["freshness_reason_code"], "market_at_not_in_trading_session")
+        self.assertFalse(result["t0_eligible"])
+
+    def test_pre_close_quote_cannot_be_latest_completed_session(self):
+        trading = session("2026-09-07T01:30:00Z", "2026-09-07T07:00:00Z")
+        payload = quote(
+            "Tencent", "cn", "x", 1, "2026-09-07T14:40:00+08:00",
+            "2026-09-07T07:01:00Z", market_timezone="Asia/Shanghai",
+            calendar_name="XSHG",
+        )
+        with mock.patch.object(
+            stock, "_market_calendar_sessions", return_value=([trading], "test_calendar")
+        ):
+            result = stock._quote_freshness(payload)
+        self.assertEqual(result["freshness_status"], "stale")
+        self.assertEqual(result["freshness_reason_code"], "not_latest_completed_session")
+        self.assertFalse(result["t0_eligible"])
+
+    def test_pre_pause_quote_cannot_be_latest_market_pause(self):
+        trading = session(
+            "2026-09-07T01:30:00Z", "2026-09-07T07:00:00Z",
+            "2026-09-07T03:30:00Z", "2026-09-07T05:00:00Z",
+        )
+        with mock.patch.object(
+            stock, "_market_calendar_sessions", return_value=([trading], "test_calendar")
+        ):
+            before_pause = stock._quote_freshness(quote(
+                "Tencent", "cn", "x", 1, "2026-09-07T11:10:00+08:00",
+                "2026-09-07T03:31:00Z", market_timezone="Asia/Shanghai",
+                calendar_name="XSHG",
+            ))
+            before_reopen = stock._quote_freshness(quote(
+                "Tencent", "cn", "x", 1, "2026-09-07T12:59:00+08:00",
+                "2026-09-07T05:01:00Z", market_timezone="Asia/Shanghai",
+                calendar_name="XSHG",
+            ))
+        self.assertEqual(before_pause["freshness_status"], "stale")
+        self.assertEqual(before_pause["freshness_reason_code"], "stale_during_market_pause")
+        self.assertFalse(before_pause["t0_eligible"])
+        self.assertEqual(before_reopen["freshness_status"], "stale")
+        self.assertEqual(before_reopen["freshness_reason_code"], "stale_during_session")
+        self.assertFalse(before_reopen["t0_eligible"])
+
+    def test_exact_open_close_and_pause_boundaries_are_certified(self):
+        trading = session(
+            "2026-09-07T01:30:00Z", "2026-09-07T07:00:00Z",
+            "2026-09-07T03:30:00Z", "2026-09-07T05:00:00Z",
+        )
+        cases = [
+            ("2026-09-07T01:30:00Z", "2026-09-07T01:30:00Z", "fresh"),
+            ("2026-09-07T03:30:00Z", "2026-09-07T03:30:00Z", "latest_close"),
+            ("2026-09-07T05:00:00Z", "2026-09-07T05:00:00Z", "fresh"),
+            ("2026-09-07T07:00:00Z", "2026-09-07T07:00:00Z", "latest_close"),
+            ("2026-09-07T07:05:00Z", "2026-09-07T07:06:00Z", "latest_close"),
+        ]
+        with mock.patch.object(
+            stock, "_market_calendar_sessions", return_value=([trading], "test_calendar")
+        ):
+            for market_at, retrieved_at, expected in cases:
+                with self.subTest(market_at=market_at):
+                    result = stock._quote_freshness(quote(
+                        "source", "cn", "x", 1, market_at, retrieved_at,
+                        market_timezone="Asia/Shanghai", calendar_name="XSHG",
+                    ))
+                    self.assertEqual(result["freshness_status"], expected)
+                    self.assertTrue(result["t0_eligible"])
+
+    def test_future_stale_invalid_and_non_trading_times_do_not_certify(self):
+        trading = session("2026-09-07T01:30:00Z", "2026-09-07T07:00:00Z")
+        payloads = [
+            (quote("Tencent", "cn", "x", 1, "2026-09-07T10:10:01+08:00",
+                   "2026-09-07T02:05:00Z", market_timezone="Asia/Shanghai",
+                   calendar_name="XSHG"), "future"),
+            (quote("Tencent", "cn", "x", 1, "2026-09-07T09:31:00+08:00",
+                   "2026-09-07T03:00:00Z", market_timezone="Asia/Shanghai",
+                   calendar_name="XSHG"), "stale"),
+            (quote("Tencent", "cn", "x", 1, "invalid", "2026-09-07T03:00:00Z",
+                   market_timezone="Asia/Shanghai", calendar_name="XSHG"), "unknown"),
+            (quote("Tencent", "cn", "x", 1, "2026-09-06T12:00:00+08:00",
+                   "2026-09-07T03:00:00Z", market_timezone="Asia/Shanghai",
+                   calendar_name="XSHG"), "unknown"),
+        ]
+        with mock.patch.object(
+            stock, "_market_calendar_sessions", return_value=([trading], "test_calendar")
+        ):
+            for payload, expected in payloads:
+                with self.subTest(expected=expected, market_at=payload["market_at"]):
+                    result = stock._quote_freshness(payload)
+                    self.assertEqual(result["freshness_status"], expected)
+                    self.assertFalse(result["t0_eligible"])
+
+    def test_unknown_timezone_or_missing_calendar_library_is_not_t0(self):
+        unknown_timezone = quote(
+            "Tencent", "us", "AAPL", 10, "2026-09-07T10:00:00",
+            "2026-09-07T14:05:00Z",
+        )
+        self.assertEqual(
+            stock._quote_freshness(unknown_timezone)["freshness_reason_code"],
+            "market_timezone_unknown",
+        )
+        known_clock = quote(
+            "Yahoo", "us", "AAPL", 10, "2026-09-07T14:00:00Z",
+            "2026-09-07T14:05:00Z", market_timezone="America/New_York",
+            calendar_name="XNYS",
+        )
+        with mock.patch.object(
+            stock, "_market_calendar_sessions",
+            return_value=(None, "calendar_library_unavailable"),
+        ):
+            result = stock._quote_freshness(known_clock)
+        self.assertEqual(result["freshness_status"], "unknown")
+        self.assertEqual(result["calendar_status"], "calendar_library_unavailable")
+        self.assertFalse(result["t0_eligible"])
+
+    def test_mixed_markets_never_share_top_level_as_of(self):
+        symbols = [stock.normalize_ticker("600519"), stock.normalize_ticker("00700")]
+        primary = {
+            "600519": quote("Tencent", "cn", "600519", 10,
+                            "2026-09-07T10:00:00+08:00", "2026-09-07T02:05:00Z",
+                            market_timezone="Asia/Shanghai", calendar_name="XSHG"),
+            "00700": quote("Tencent", "hk", "00700", 20,
+                           "2026-09-07T10:00:00+08:00", "2026-09-07T02:05:00Z",
+                           market_timezone="Asia/Hong_Kong", calendar_name="XHKG"),
+        }
+        sessions = [session("2026-09-07T01:30:00Z", "2026-09-07T08:00:00Z")]
+        with mock.patch.object(stock, "tencent_quotes", return_value=primary), \
+             mock.patch.object(stock, "_market_calendar_sessions",
+                               return_value=(sessions, "test_calendar")):
+            report, exit_code = stock.build_quote_report(symbols)
+        self.assertEqual(exit_code, 0)
+        self.assertIsNone(report["as_of"])
+        self.assertEqual(report["as_of_reason_code"], "mixed_markets_not_aggregated")
+        self.assertEqual(set(report["as_of_by_market"]), {"cn", "hk"})
+
+    def test_source_timestamp_semantics_are_explicit(self):
+        self.assertEqual(
+            stock._tencent_market_at("20260907100000", "Asia/Shanghai"),
+            "2026-09-07T10:00:00+08:00",
+        )
+        self.assertEqual(stock._yahoo_market_at(0), "1970-01-01T00:00:00Z")
+
+    def test_yahoo_exchange_mapping_does_not_treat_us_exchanges_as_synonyms(self):
+        self.assertEqual(stock._yahoo_calendar_name("us", "NYQ"), "XNYS")
+        for exchange in ("NMS", "NGM", "NCM"):
+            self.assertEqual(stock._yahoo_calendar_name("us", exchange), "XNAS")
+        self.assertEqual(stock._yahoo_calendar_name("cn", "SHH"), "XSHG")
+        self.assertIsNone(stock._yahoo_calendar_name("cn", "SHZ"))
+        self.assertIsNone(stock._yahoo_calendar_name("us", "ASE"))
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("exchange_calendars"),
+    "exchange_calendars integration requires the stock-data runtime",
+)
+class ExchangeCalendarIntegrationTests(unittest.TestCase):
+    def sessions(self, calendar, start, end):
+        sessions, status = stock._market_calendar_sessions(
+            calendar,
+            stock._dt.date.fromisoformat(start),
+            stock._dt.date.fromisoformat(end),
+        )
+        self.assertEqual(status, "exchange_calendars")
+        self.assertIsNotNone(sessions)
+        return sessions
+
+    def test_a_h_breaks_and_hk_half_day_are_in_schedule(self):
+        shanghai = self.sessions("XSHG", "2026-09-08", "2026-09-08")[0]
+        self.assertEqual(shanghai["break_start"].isoformat(), "2026-09-08T03:30:00+00:00")
+        self.assertEqual(shanghai["break_end"].isoformat(), "2026-09-08T05:00:00+00:00")
+
+        hong_kong = self.sessions("XHKG", "2026-09-08", "2026-09-08")[0]
+        self.assertEqual(hong_kong["break_start"].isoformat(), "2026-09-08T04:00:00+00:00")
+        self.assertEqual(hong_kong["break_end"].isoformat(), "2026-09-08T05:00:00+00:00")
+
+        hk_half_day = self.sessions("XHKG", "2026-02-16", "2026-02-16")[0]
+        self.assertEqual(hk_half_day["close"].isoformat(), "2026-02-16T04:00:00+00:00")
+        self.assertIsNone(hk_half_day["break_start"])
+        self.assertIsNone(hk_half_day["break_end"])
+
+    def test_labor_day_latest_close_is_september_four(self):
+        sessions = self.sessions("XNYS", "2026-09-03", "2026-09-08")
+        self.assertEqual([item["date"] for item in sessions], [
+            "2026-09-03", "2026-09-04", "2026-09-08",
+        ])
+        payload = quote(
+            "Yahoo", "us", "AAPL", 10, "2026-09-04T20:00:00Z",
+            "2026-09-08T00:30:00Z", market_timezone="America/New_York",
+            calendar_name="XNYS",
+        )
+        result = stock._quote_freshness(payload)
+        self.assertEqual(result["freshness_status"], "latest_close")
+        self.assertEqual(result["freshness_reason_code"], "latest_completed_session")
+        self.assertTrue(result["t0_eligible"])
+
+    def test_nasdaq_and_nyse_capture_dst_and_early_close(self):
+        for calendar in ("XNYS", "XNAS"):
+            with self.subTest(calendar=calendar):
+                early_close = self.sessions(calendar, "2026-11-27", "2026-11-27")[0]
+                self.assertEqual(early_close["open"].isoformat(), "2026-11-27T14:30:00+00:00")
+                self.assertEqual(early_close["close"].isoformat(), "2026-11-27T18:00:00+00:00")
+
+    def test_calendar_lookup_failure_remains_unknown(self):
+        payload = quote(
+            "Yahoo", "us", "AAPL", 10, "2026-09-04T20:00:00Z",
+            "2026-09-08T00:30:00Z", market_timezone="America/New_York",
+            calendar_name="NOT_A_REAL_EXCHANGE",
+        )
+        result = stock._quote_freshness(payload)
+        self.assertEqual(result["freshness_status"], "unknown")
+        self.assertEqual(result["calendar_status"], "calendar_lookup_failed")
+        self.assertFalse(result["t0_eligible"])
+
+class CalendarCoverageTests(unittest.TestCase):
+    def test_frozen_finite_calendar_rejects_uncovered_dates(self):
+        class LimitedCalendar:
+            first_session = stock._dt.date(2026, 12, 30)
+            last_session = stock._dt.date(2026, 12, 31)
+
+            @property
+            def schedule(self):
+                raise AssertionError("out-of-range lookup must not slice the schedule")
+
+        with mock.patch("exchange_calendars.get_calendar", return_value=LimitedCalendar()):
+            sessions, status = stock._market_calendar_sessions(
+                "XSHG", stock._dt.date(2026, 12, 30), stock._dt.date(2027, 1, 1)
+            )
+        self.assertIsNone(sessions)
+        self.assertEqual(status, "calendar_out_of_range")
+
+    def test_real_xshg_coverage_end_cannot_certify_latest_close(self):
+        payload = quote(
+            "Tencent", "cn", "600519", 10, "2026-12-31T15:00:00+08:00",
+            "2027-01-04T00:00:00Z", market_timezone="Asia/Shanghai",
+            calendar_name="XSHG",
+        )
+        result = stock._quote_freshness(payload)
+        self.assertEqual(result["freshness_status"], "unknown")
+        self.assertEqual(result["calendar_status"], "calendar_out_of_range")
+        self.assertEqual(result["freshness_reason_code"], "calendar_out_of_range")
+        self.assertFalse(result["t0_eligible"])
+
+
+class KlineContractTests(unittest.TestCase):
+    @staticmethod
+    def _tencent_response(rows, key="qfqday"):
+        return FakeResponse({"data": {"sh600519": {key: rows}}})
+
+    def test_tencent_count_is_exact_max_for_day_and_week(self):
+        raw = [
+            [f"2026-09-{day:02d}", str(day), str(day + 0.5),
+             str(day + 1), str(day - 1), "100"]
+            for day in range(1, 7)
+        ]
+        for ktype, key in ((9, "qfqday"), (102, "qfqweek")):
+            with self.subTest(ktype=ktype), mock.patch.object(
+                stock.requests, "get", return_value=self._tencent_response(raw, key)
+            ):
+                result = stock.tencent_akline("600519", count=5, ktype=ktype)
+            self.assertEqual(len(result["rows"]), 5)
+            self.assertEqual(result["rows"][0]["date"], "2026-09-02")
+            self.assertEqual(result["source_returned_count"], 6)
+            self.assertEqual(result["requested_count"], 5)
+            self.assertEqual(result["returned_count"], 5)
+
+    def test_invalid_duplicate_and_unsorted_rows_cannot_define_latest_window(self):
+        rows = [bar("2026-09-05", 5), bar("bad-date", 9), bar("2026-09-02", 2),
+                bar("2026-09-04", 4), bar("2026-09-04", 4.5), bar("2026-09-03", 3)]
+        selected, metadata = stock._validated_recent_bars(rows, 3)
+        self.assertEqual([row["date"] for row in selected], [
+            "2026-09-03", "2026-09-04", "2026-09-05",
+        ])
+        self.assertEqual(selected[1]["close"], 4.5)
+        self.assertEqual(metadata["source_order"], "unsorted")
+        self.assertEqual(metadata["invalid_row_count"], 1)
+        self.assertEqual(metadata["duplicate_row_count"], 1)
+
+    def test_fewer_valid_rows_are_returned_without_padding(self):
+        selected, metadata = stock._validated_recent_bars([bar("2026-09-01"), bar("2026-09-02")], 5)
+        self.assertEqual(len(selected), 2)
+        self.assertEqual(metadata["returned_count"], 2)
+        self.assertEqual(metadata["requested_count"], 5)
+
+    def test_invalid_count_and_minute_reject_before_request(self):
+        for count in (0, -1, True, "5"):
+            with self.subTest(count=count), mock.patch.object(stock.requests, "get") as get:
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    stock.tencent_akline("600519", count=count)
+                get.assert_not_called()
+        with mock.patch.object(stock.requests, "get") as get:
+            with self.assertRaisesRegex(ValueError, "minute"):
+                stock.tencent_akline("600519", count=5, ktype=5)
+            get.assert_not_called()
+
+    def test_period_adjustment_key_must_match_exactly(self):
+        response = self._tencent_response([["2026-09-01", 9, 10, 11, 8, 100]], "day")
+        with mock.patch.object(stock.requests, "get", return_value=response):
+            with self.assertRaisesRegex(ValueError, "expected exact key='qfqday'"):
+                stock.tencent_akline("600519", count=1, ktype=9)
+
+    def test_yahoo_cli_applies_same_count_contract(self):
+        args = mock.Mock(symbol="AAPL", period="1mo", interval="1d", count=5)
+        source_rows = [bar(f"2026-09-{day:02d}", day) for day in range(1, 7)]
+        with mock.patch.object(stock, "yahoo_kline", return_value=source_rows), \
+             mock.patch.object(stock, "print_json") as print_json:
+            self.assertEqual(stock.cmd_kline(args), 0)
+        output = print_json.call_args.args[0]
+        self.assertEqual(len(output["rows"]), 5)
+        self.assertEqual(output["source_returned_count"], 6)
+        self.assertEqual(output["returned_count"], 5)
+
+    def test_yahoo_cli_rejects_all_invalid_rows(self):
+        args = mock.Mock(symbol="AAPL", period="1mo", interval="1d", count=5)
+        with mock.patch.object(stock, "yahoo_kline", return_value=[bar("invalid")]), \
+             mock.patch.object(stock, "print_json") as print_json:
+            with self.assertRaisesRegex(ValueError, "no valid K-line rows"):
+                stock.cmd_kline(args)
+        print_json.assert_not_called()
 
 
 class HealthcheckTests(unittest.TestCase):
@@ -137,45 +529,6 @@ class HealthcheckTests(unittest.TestCase):
         self.assertTrue(report["ok"])
 
 
-class AnySearchTests(unittest.TestCase):
-    def test_http_error_is_explicit(self):
-        response = FakeResponse(
-            {"error": {"message": "denied"}},
-            http_error=anysearch.requests.exceptions.HTTPError("403"),
-        )
-        with mock.patch.object(anysearch.requests, "post", return_value=response):
-            with self.assertRaises(anysearch.AnySearchError):
-                anysearch._call_api("search", {"query": "x"}, "")
-
-    def test_json_rpc_error_and_mcp_is_error_fail(self):
-        with self.assertRaises(anysearch.AnySearchError):
-            anysearch._parse_mcp_response({"error": {"message": "rpc failed"}})
-        with self.assertRaises(anysearch.AnySearchError):
-            anysearch._parse_mcp_response({
-                "result": {"isError": True, "content": [{"type": "text", "text": "tool failed"}]}
-            })
-
-    def test_malformed_and_empty_content_fail(self):
-        for payload in (
-            {"result": {}},
-            {"result": {"content": []}},
-            {"result": {"content": [{"type": "text", "text": ""}]}},
-            {"result": {"content": ["bad"]}},
-            {"result": {"content": [{"text": "missing type"}]}},
-            {"result": {"content": [{"type": "text", "text": "## Search Results"}]}},
-        ):
-            with self.subTest(payload=payload), self.assertRaises(anysearch.AnySearchError):
-                anysearch._parse_mcp_response(payload)
-
-    def test_search_results_error_text_is_not_a_result(self):
-        with self.assertRaises(anysearch.AnySearchError):
-            anysearch._parse_mcp_response({
-                "result": {"content": [{
-                    "type": "text", "text": "## Search Results\n\n**Error:** backend unavailable"
-                }]}
-            })
-
-
 class DoctorTests(unittest.TestCase):
     def test_anysearch_checks_exit_and_result_structure(self):
         valid = "## Search Results\n\n### 1. OpenAI\nhttps://openai.com/"
@@ -193,6 +546,26 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual((status, reason), ("empty", "no_healthy_channel"))
         malformed = doctor.validate_agent_reach_channels({"web": {"status": "ok"}})
         self.assertEqual(malformed[0], "error")
+
+
+class LauncherTests(unittest.TestCase):
+    def test_bootstrap_subprocess_stdout_is_redirected_to_stderr(self):
+        runtime = Path("/tmp/stock-data-test-runtime/bin/python")
+        marker = mock.Mock()
+        with mock.patch.object(launcher, "_runtime_python", return_value=runtime), \
+             mock.patch.object(launcher, "_bootstrap_python", return_value="/usr/bin/python3"), \
+             mock.patch.object(launcher, "_marker_matches", return_value=False), \
+             mock.patch.object(launcher, "_installed_versions_match", return_value=False), \
+             mock.patch.object(launcher, "MARKER", marker), \
+             mock.patch.object(launcher.Path, "is_file", return_value=False), \
+             mock.patch.object(launcher.subprocess, "run") as run:
+            self.assertEqual(launcher._ensure_runtime(), runtime)
+
+        self.assertEqual(run.call_count, 2)
+        for subprocess_call in run.call_args_list:
+            self.assertIs(subprocess_call.kwargs["stdout"], sys.stderr)
+        self.assertEqual(run.call_args_list[1].args[0][2:4], ["pip", "install"])
+        marker.write_text.assert_called_once()
 
 
 class KlineTests(unittest.TestCase):

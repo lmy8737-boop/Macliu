@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.5.0 — 2026-11-05
+
+**`stock-data` 5.7 → 5.8.0**
+
+- 新增运行入口 `scripts/run_stock_data.py`：首次运行按 `requirements-runtime.txt` 自动创建独立 `.venv`，之后复用；文档里的命令全部改走它，`stock_data_cli.py` 仍可直接调用。
+- 行情新增时效判断：`quote` 区分数据源时间 `market_at` 和抓取时间 `retrieved_at`，并按交易所日历给出 `freshness_status` 和 `t0_eligible`。拿到价格不再等于价格够新，时区或交易所无法确认时不判定为可用。美股主源改为 Yahoo，腾讯降为备用。多市场一起查询时不再合成一个总的 `as_of`。
+- K 线新增计数合同：`--count N` 表示最多返回 N 根清洗后的有效 K 线，并输出无效和重复条数。
+- 新增量化数据湖（`bulk` / `thsdump` / `ths` / `lake`）：批量下载 5 分钟线、日线和复权因子，支持断点续传和熔断，价格一律存不复权原价。同花顺 fuyao 需要自备 key；`bulk` 需要自备下载名单，本包不附带。
+
+**`web-harvest` 3.3.0 → 3.3.1**
+
+- `doctor.py` 把 AnySearch 的 `No relevant results found.` 记为 `empty`，不再误判为服务故障。
+- 新增协议回归 `tests/test_response_contract.py`，用 `SKILLS_DIR` 定位 AnySearch；未安装时自动跳过。
+
+**`INSTALL.md`**
+
+- 修正验收命令：原来的 `quote --code AAPL` 参数写法不对，改为 `run_stock_data.py quote AAPL`。
+- 说明 `stock-data` 首次运行会自动安装依赖。
+
 ## v2.4.0 — 2026-09-08
 
 **新增**：安装路径不再需要用户或 agent 现场决定——固定约定：macOS/Linux 用 `~/Documents/投研工作目录`（Finder 显示为"文稿"，磁盘上的真实目录名始终是 `Documents`），Windows 用 `%USERPROFILE%\Documents\投研工作目录`（显示为"文档"）。`INSTALL.md` 新增"第 0 步"：检查/自动安装 git、按约定路径克隆或更新（已存在时正确区分"是本仓库→当升级处理""不是本仓库→不覆盖，停下来问"三种情况）。原"第 0 步：部署 Obsidian 知识库"顺延为第 1 步，后续步骤依次顺延（原第 1-5 步 → 现第 2-6 步），所有互相引用的步骤号已同步更新。

@@ -1,0 +1,9 @@
+baostock==0.9.3
+exchange-calendars==4.13.2
+numpy==1.26.4
+openpyxl==3.1.5
+pandas==2.2.2
+pyarrow==18.1.0
+requests==2.32.3
+tzdata==2026.3
+xlrd==2.0.1

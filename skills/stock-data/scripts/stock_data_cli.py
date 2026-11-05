@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Executable helpers for the stock-data skill (v5.2, 增量 2026-09-04).
+"""Executable helpers for the stock-data skill (v5.7.2, updated 2026-09-08).
 
 本次更新只新增两类此前标可达但未沉淀的能力:
 1) A股日K连板复算 — 腾讯 fqkline (`web.ifzq.gtimg.cn`)
@@ -146,13 +146,33 @@ def _tencent_market_at(value: str | None, timezone_name: str | None = None) -> s
 def _yahoo_market_at(value: Any) -> str | None:
     if value is None:
         return None
+    try:
+        return _dt.datetime.fromtimestamp(float(value), _dt.timezone.utc).isoformat(
+            timespec="seconds"
+        ).replace("+00:00", "Z")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return None
 
 
 _TENCENT_MARKET_CLOCKS = {
     "cn": ("Asia/Shanghai", "XSHG"),
     "hk": ("Asia/Hong_Kong", "XHKG"),
 }
-_YAHOO_US_EXCHANGES = {"NMS", "NGM", "NCM", "NYQ", "ASE", "PCX", "BTS"}
+_YAHOO_EXCHANGE_CALENDARS = {
+    ("cn", "SHH"): "XSHG",
+    ("hk", "HKG"): "XHKG",
+    ("us", "NYQ"): "XNYS",
+    ("us", "NMS"): "XNAS",
+    ("us", "NGM"): "XNAS",
+    ("us", "NCM"): "XNAS",
+}
+
+
+def _yahoo_calendar_name(market: str, exchange: Any) -> str | None:
+    """Map only verified Yahoo exchange identifiers to their own calendar."""
+    if not isinstance(exchange, str):
+        return None
+    return _YAHOO_EXCHANGE_CALENDARS.get((market, exchange.upper()))
 
 
 def _parse_aware_datetime(value: Any, timezone_name: str | None = None) -> _dt.datetime | None:
@@ -181,17 +201,36 @@ def _as_utc_datetime(value: Any) -> _dt.datetime | None:
         return None
 
 
+def _calendar_boundary_date(value: Any) -> _dt.date | None:
+    """Normalize a calendar's advertised session boundary without guessing."""
+    if isinstance(value, _dt.datetime):
+        return value.date()
+    if isinstance(value, _dt.date):
+        return value
+    try:
+        result = value.date()
+        return result if isinstance(result, _dt.date) else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
 def _market_calendar_sessions(
     calendar_name: str, start_date: _dt.date, end_date: _dt.date,
 ) -> tuple[list[dict[str, Any]] | None, str]:
     """Read sessions from exchange_calendars; absence is an explicit unknown."""
     try:
         import exchange_calendars as xcals
-    except ModuleNotFoundError:
+    except ImportError:
         return None, "calendar_library_unavailable"
 
     try:
         calendar = xcals.get_calendar(calendar_name)
+        first_date = _calendar_boundary_date(getattr(calendar, "first_session", None))
+        last_date = _calendar_boundary_date(getattr(calendar, "last_session", None))
+        if first_date is None or last_date is None:
+            return None, "calendar_coverage_unknown"
+        if start_date < first_date or end_date > last_date:
+            return None, "calendar_out_of_range"
         schedule = calendar.schedule.loc[start_date.isoformat():end_date.isoformat()]
         sessions = []
         for label, row in schedule.iterrows():
@@ -258,7 +297,7 @@ def _quote_freshness(payload: dict[str, Any]) -> dict[str, Any]:
 
     tolerance = _dt.timedelta(minutes=30)
     matching = next(
-        (s for s in sessions if s["open"] - tolerance <= market_at <= s["close"] + tolerance),
+        (s for s in sessions if s["open"] <= market_at <= s["close"] + tolerance),
         None,
     )
     if matching is None:
@@ -266,12 +305,12 @@ def _quote_freshness(payload: dict[str, Any]) -> dict[str, Any]:
         return base
 
     active = next(
-        (s for s in sessions if s["open"] <= retrieved_at <= s["close"]), None
+        (s for s in sessions if s["open"] <= retrieved_at < s["close"]), None
     )
     if active:
         break_start, break_end = active.get("break_start"), active.get("break_end")
-        if break_start and break_end and break_start <= retrieved_at <= break_end:
-            if matching is active and abs((market_at - break_start).total_seconds()) <= 1800:
+        if break_start and break_end and break_start <= retrieved_at < break_end:
+            if matching is active and break_start <= market_at <= break_start + tolerance:
                 base.update(
                     freshness_status="latest_close", freshness_reason_code="latest_market_pause",
                     t0_eligible=True,
@@ -279,7 +318,19 @@ def _quote_freshness(payload: dict[str, Any]) -> dict[str, Any]:
             else:
                 base.update(freshness_status="stale", freshness_reason_code="stale_during_market_pause")
             return base
-        if matching is active and -120 <= delay <= 900:
+        segment_start = (
+            break_end if break_start and break_end and retrieved_at >= break_end
+            else active["open"]
+        )
+        segment_end = (
+            break_start if break_start and break_end and retrieved_at < break_start
+            else active["close"]
+        )
+        if (
+            matching is active
+            and segment_start <= market_at <= segment_end
+            and -120 <= delay <= 900
+        ):
             base.update(
                 freshness_status="fresh", freshness_reason_code="fresh_during_session",
                 t0_eligible=True,
@@ -290,7 +341,11 @@ def _quote_freshness(payload: dict[str, Any]) -> dict[str, Any]:
 
     completed = [s for s in sessions if s["close"] <= retrieved_at]
     latest = max(completed, key=lambda s: s["close"]) if completed else None
-    if latest and matching is latest and abs((market_at - latest["close"]).total_seconds()) <= 1800:
+    if (
+        latest
+        and matching is latest
+        and latest["close"] <= market_at <= latest["close"] + tolerance
+    ):
         base.update(
             freshness_status="latest_close", freshness_reason_code="latest_completed_session",
             t0_eligible=True,
@@ -316,7 +371,8 @@ def _validated_recent_bars(
             date_value = row.get("date")
             parsed_date = _dt.datetime.strptime(date_value, date_format)
             values = {field: float(row[field]) for field in ("open", "high", "low", "close")}
-            volume = float(row.get("volume", 0))
+            raw_volume = row.get("volume", 0)
+            volume = 0.0 if raw_volume in (None, "", "-") else float(raw_volume)
             if not all(math.isfinite(v) for v in (*values.values(), volume)) or volume < 0:
                 raise ValueError
             if values["high"] < max(values["open"], values["close"], values["low"]):
@@ -354,12 +410,6 @@ def _validated_recent_bars(
         "duplicate_row_count": duplicate_count,
         "source_order": source_order,
     }
-    try:
-        return _dt.datetime.fromtimestamp(float(value), _dt.timezone.utc).isoformat(
-            timespec="seconds"
-        ).replace("+00:00", "Z")
-    except (TypeError, ValueError, OSError, OverflowError):
-        return None
 
 
 def parse_tencent_line(text: str) -> list[str]:
@@ -426,6 +476,8 @@ def tencent_quotes(symbols: list[NormalizedTicker]) -> dict[str, dict[str, Any]]
             }
         market_at_raw = vals[30] if len(vals) > 30 else None
         timezone_name, calendar_name = _TENCENT_MARKET_CLOCKS.get(meta.market, (None, None))
+        if meta.market == "cn" and not (meta.tencent or "").startswith("sh"):
+            calendar_name = None
         payload["market_at_raw"] = market_at_raw
         payload["market_at"] = _tencent_market_at(market_at_raw, timezone_name)
         payload["market_at_basis"] = "exchange_local" if timezone_name else "unknown"
@@ -449,13 +501,7 @@ def yahoo_quotes(symbols: list[NormalizedTicker]) -> dict[str, dict[str, Any]]:
     for s in symbols:
         item = by_symbol.get(s.yahoo, {})
         exchange = item.get("exchange")
-        calendar_name = None
-        if s.market == "hk" and exchange in {"HKG", "HKGD"}:
-            calendar_name = "XHKG"
-        elif s.market == "cn" and exchange in {"SHH", "SHZ"}:
-            calendar_name = "XSHG" if exchange == "SHH" else None
-        elif s.market == "us" and exchange in _YAHOO_US_EXCHANGES:
-            calendar_name = "XNYS"
+        calendar_name = _yahoo_calendar_name(s.market, exchange)
         out[s.raw] = {
             "source": "Yahoo", "market": s.market, "code": s.code,
             "symbol": s.yahoo, "name": item.get("shortName") or item.get("longName"),
@@ -1695,7 +1741,7 @@ def eastmoney_newsflash(count: int = 20) -> list[dict[str, Any]]:
 # CLI
 # ===========================================================================
 
-_QUOTE_REQUIRED_FIELDS = ("source", "market", "code", "price", "market_at")
+_QUOTE_REQUIRED_FIELDS = ("source", "market", "code", "price")
 
 
 def _quote_validation_reason(payload: Any) -> str | None:
@@ -1713,8 +1759,8 @@ def build_quote_report(symbols: list[NormalizedTicker]) -> tuple[dict[str, Any],
     primary: dict[str, dict[str, Any]] = {}
     primary_reasons: dict[str, str] = {}
     primary_errors: dict[str, str] = {}
-    tencent_symbols = [s for s in symbols if s.market in {"cn", "hk", "us"}]
-    yahoo_primary_symbols = [s for s in symbols if s.market == "index"]
+    tencent_symbols = [s for s in symbols if s.market in {"cn", "hk"}]
+    yahoo_primary_symbols = [s for s in symbols if s.market in {"us", "index"}]
 
     if tencent_symbols:
         try:
@@ -1734,16 +1780,28 @@ def build_quote_report(symbols: list[NormalizedTicker]) -> tuple[dict[str, Any],
     for symbol in symbols:
         primary_reasons.setdefault(symbol.raw, _quote_validation_reason(primary.get(symbol.raw)) or "primary_ok")
 
-    fallback_targets = [
+    yahoo_fallback_targets = [
         symbol for symbol in tencent_symbols if primary_reasons[symbol.raw] != "primary_ok"
     ]
+    tencent_fallback_targets = [
+        symbol for symbol in yahoo_primary_symbols
+        if symbol.market == "us" and primary_reasons[symbol.raw] != "primary_ok"
+    ]
+    fallback_targets = yahoo_fallback_targets + tencent_fallback_targets
     fallback: dict[str, dict[str, Any]] = {}
-    fallback_error: str | None = None
-    if fallback_targets:
+    fallback_errors: dict[str, str] = {}
+    if yahoo_fallback_targets:
         try:
-            fallback = yahoo_quotes(fallback_targets)
+            fallback.update(yahoo_quotes(yahoo_fallback_targets))
         except Exception as exc:
-            fallback_error = str(exc)[:300]
+            error = str(exc)[:300]
+            fallback_errors.update({symbol.raw: error for symbol in yahoo_fallback_targets})
+    if tencent_fallback_targets:
+        try:
+            fallback.update(tencent_quotes(tencent_fallback_targets))
+        except Exception as exc:
+            error = str(exc)[:300]
+            fallback_errors.update({symbol.raw: error for symbol in tencent_fallback_targets})
 
     quotes: dict[str, dict[str, Any]] = {}
     for symbol in symbols:
@@ -1756,6 +1814,7 @@ def build_quote_report(symbols: list[NormalizedTicker]) -> tuple[dict[str, Any],
         elif symbol in fallback_targets:
             fallback_payload = fallback.get(symbol.raw)
             fallback_reason = _quote_validation_reason(fallback_payload)
+            fallback_error = fallback_errors.get(symbol.raw)
             if fallback_reason is None:
                 payload = dict(fallback_payload or {})
                 status = "ok"
@@ -1776,7 +1835,7 @@ def build_quote_report(symbols: list[NormalizedTicker]) -> tuple[dict[str, Any],
             reason_code = f"{primary_reason}_no_fallback"
             reason = primary_errors.get(symbol.raw)
 
-        # Compatibility: retain legacy fields and add uniform provenance/status keys.
+        # Compatibility: retain legacy fields while keeping acquisition and freshness separate.
         payload.setdefault("source", None)
         payload.setdefault("market", symbol.market)
         payload.setdefault("code", symbol.code)
@@ -1784,28 +1843,53 @@ def build_quote_report(symbols: list[NormalizedTicker]) -> tuple[dict[str, Any],
         if not payload.get("retrieved_at"):
             payload["retrieved_at"] = retrieved_at
         payload["status"] = status
+        payload["acquisition_status"] = status
         payload["reason_code"] = reason_code
         if reason:
             payload["reason"] = reason
+        payload.update(_quote_freshness(payload))
+        if status != "ok":
+            payload["t0_eligible"] = False
         quotes[symbol.raw] = payload
 
     ok_count = sum(1 for quote in quotes.values() if quote["status"] == "ok")
     error_count = len(quotes) - ok_count
     status = "ok" if not error_count else "partial" if ok_count else "error"
-    market_times = [
-        quote["market_at"] for quote in quotes.values()
-        if quote["status"] == "ok" and quote.get("market_at")
-    ]
+    certified_by_market: dict[str, list[_dt.datetime]] = {}
+    for quote in quotes.values():
+        if quote["status"] != "ok" or not quote.get("t0_eligible"):
+            continue
+        market_time = _parse_aware_datetime(quote.get("market_at"), quote.get("market_timezone"))
+        if market_time is not None:
+            certified_by_market.setdefault(quote["market"], []).append(market_time)
+    as_of_by_market = {
+        market: max(times).isoformat(timespec="seconds").replace("+00:00", "Z")
+        for market, times in certified_by_market.items()
+    }
+    as_of = next(iter(as_of_by_market.values())) if len(as_of_by_market) == 1 else None
+    as_of_reason = (
+        "single_market_certified" if len(as_of_by_market) == 1
+        else "mixed_markets_not_aggregated" if len(as_of_by_market) > 1
+        else "no_certified_market_time"
+    )
+    t0_eligible_count = sum(
+        quote["status"] == "ok" and bool(quote.get("t0_eligible"))
+        for quote in quotes.values()
+    )
     report = {
-        # Legacy `as_of` remains, but now comes only from upstream market timestamps.
-        "as_of": max(market_times) if market_times else None,
+        # Legacy `as_of` is populated only for one calendar-certified market.
+        "as_of": as_of,
+        "as_of_reason_code": as_of_reason,
+        "as_of_by_market": as_of_by_market,
         "retrieved_at": retrieved_at,
         "status": status,
+        "acquisition_status": status,
         "reason_code": {
             "ok": "all_quotes_ok", "partial": "some_quotes_failed", "error": "all_quotes_failed",
         }[status],
         "ok_count": ok_count,
         "error_count": error_count,
+        "t0_eligible_count": t0_eligible_count,
         "quotes": quotes,
     }
     return report, 0 if ok_count else 1
@@ -1823,6 +1907,8 @@ def cmd_kline(args: argparse.Namespace) -> int:
 
     沙箱实测 (2026-09-04): A股/港股走 fqkline 准确度优于 Yahoo (Yahoo A股数据残缺/延迟).
     """
+    if isinstance(args.count, bool) or not isinstance(args.count, int) or args.count <= 0:
+        raise ValueError("K-line count must be a positive integer")
     meta = normalize_ticker(args.symbol)
     if meta.market in {"cn", "hk"}:
         interval_to_ktype = {"1d": 9, "1wk": 102, "1mo": 103}
@@ -1834,25 +1920,19 @@ def cmd_kline(args: argparse.Namespace) -> int:
         else:
             raise ValueError(f"Unsupported A/H K-line interval: {args.interval}")
         result = tencent_akline(args.symbol, count=args.count, ktype=ktype)
-        # 拆分 result 字段以便与 Yahoo kline 输出兼容
-        rows = result.pop("rows")
-        print_json({
-            "symbol": args.symbol, "market": meta.market,
-            "source": result.pop("source"),
-            "code": result.get("code"), "name": result.get("name"),
-            "period_start": result.get("period_start"),
-            "period_end": result.get("period_end"),
-            "ktype": result.get("ktype"),
-            "period": result.get("period"),
-            "interval": args.interval,
-            "adjustment": result.get("adjustment"),
-            "rows": rows,
-        })
+        print_json({"symbol": args.symbol, **result, "interval": args.interval})
     else:
-        rows = yahoo_kline(args.symbol, args.period, args.interval)
+        raw_rows = yahoo_kline(args.symbol, args.period, args.interval)
+        rows, row_metadata = _validated_recent_bars(
+            raw_rows, args.count, intraday=bool(re.fullmatch(r"\d+[mh]", args.interval)),
+        )
+        if not rows:
+            raise ValueError(
+                f"Yahoo returned no valid K-line rows for {meta.yahoo}, interval={args.interval}"
+            )
         print_json({"symbol": args.symbol, "source": "Yahoo",
                     "period": args.period, "interval": args.interval,
-                    "adjustment": "none", "rows": rows})
+                    "adjustment": "none", **row_metadata, "rows": rows})
     return 0
 
 
@@ -2149,18 +2229,77 @@ def cmd_healthcheck(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def _bulk_module():
+    """懒加载批量数据湖模块（需要 pyarrow；不影响其余命令的依赖）。"""
+    import sys
+    scripts = str(_Path(__file__).resolve().parent)
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    import bulk_data
+    return bulk_data
+
+
+def cmd_bulk(args: argparse.Namespace) -> int:
+    """baostock 批量下载(5分钟线/日线+复权因子). 用法: bulk --kind 5m --workers 4 [--limit 5]."""
+    bd = _bulk_module()
+    if args.stop:
+        print_json(bd.stop_bulk())
+        return 0
+    if args.probe:
+        print_json(bd.probe_baostock())
+        return 0
+    if not args.kind:
+        raise SystemExit("bulk 需要 --kind {5m,daily,daily_pre,daily_gap}，或用 --stop 停止运行中的下载")
+    from pathlib import Path
+    uni = Path(args.universe).expanduser() if args.universe else bd.UNIVERSE_DEFAULT
+    print_json(bd.run_bulk(args.kind, workers=args.workers, limit=args.limit, universe=uni))
+    return 0
+
+
+def cmd_thsdump(args: argparse.Namespace) -> int:
+    """同花顺全市场 dump. 用法: thsdump daily-k [--confirm-download]（默认只查大小不下载）."""
+    print_json(_bulk_module().ths_dump(args.kind, confirm_download=args.confirm_download))
+    return 0
+
+
+def cmd_ths(args: argparse.Namespace) -> int:
+    """同花顺 fuyao REST 只读透传. 用法: ths /api/meta/tickers/search --param q=600519 --param limit=1."""
+    params: dict[str, str] = {}
+    for item in args.param or []:
+        if "=" not in item:
+            raise SystemExit(f"--param 需要 k=v 形式: {item}")
+        k, v = item.split("=", 1)
+        params[k] = v
+    data = _bulk_module().ths_get(args.path, params)
+    if args.out:
+        out = _Path(args.out).expanduser()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        print_json({"path": args.path, "params": params, "saved_to": str(out),
+                    "bytes": out.stat().st_size})
+    else:
+        print_json({"path": args.path, "params": params, "data": data})
+    return 0
+
+
+def cmd_lake(args: argparse.Namespace) -> int:
+    """数据湖盘点. 用法: lake."""
+    print_json(_bulk_module().lake_status())
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="stock-data skill CLI (v5.2)")
+    parser = argparse.ArgumentParser(description="stock-data skill CLI (v5.7.2)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("quote", help="Fetch realtime quotes (A/H/US via Tencent)")
+    p = sub.add_parser("quote", help="Fetch realtime quotes (A/H via Tencent, US via Yahoo)")
     p.add_argument("symbols", nargs="+")
     p.set_defaults(func=cmd_quote)
 
     p = sub.add_parser("kline", help="K线: A股/港股→腾讯 fqkline (前复权), 美股→Yahoo")
     p.add_argument("symbol")
     p.add_argument("--count", type=int, default=250,
-                   help="A股/港股: K线根数 (default 250)")
+                   help="最多返回最近 N 根有效 K 线 (default 250)")
     p.add_argument("--period", default="6mo", help="美股/指数: Yahoo range")
     p.add_argument(
         "--interval", default="1d",
@@ -2293,6 +2432,34 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("code")
     p.add_argument("--max-pages", type=int, default=3)
     p.set_defaults(func=cmd_reports)
+
+    p = sub.add_parser("bulk",
+                       help="[新] baostock 批量下载 5分钟线/日线+复权因子到数据湖(可断点续传, 不复权原价)")
+    p.add_argument("--probe", action="store_true", help="安全探测 baostock 能否恢复：一次登录+一次极小查询，带超时，不会挂死")
+    p.add_argument("--stop", action="store_true", help="停止运行中的 bulk（读 logs/bulk.pid）；同一时间只允许一个 bulk")
+    p.add_argument("--kind", choices=["5m", "daily", "daily_pre", "daily_gap"],
+                   help="daily_pre=补 2010~2017 日线；daily_gap=补 2018-01 至各股现有日线起点之间的空档")
+    p.add_argument("--workers", type=int, default=2,
+                   help="并发进程数，默认 2；2026-09-29 实测 7 个并发会话触发 baostock 黑名单(10001011)，勿超过 4")
+    p.add_argument("--limit", type=int, default=0, help="只下前N只(冒烟测试)")
+    p.add_argument("--universe", default="", help="下载名单CSV, 默认 $STOCK_DATA_LAKE/meta/universe_union_2020_2026.csv")
+    p.set_defaults(func=cmd_bulk)
+
+    p = sub.add_parser("thsdump",
+                       help="[新] 同花顺 Market Dumps(全市场10年日K/近10日/复权事件); 默认只查大小")
+    p.add_argument("kind", choices=["daily-k", "daily-k-10d", "adjustment-factors"])
+    p.add_argument("--confirm-download", action="store_true", help="确认后才真正下载")
+    p.set_defaults(func=cmd_thsdump)
+
+    p = sub.add_parser("ths",
+                       help="[新] 同花顺 fuyao REST 只读透传(财务/估值/指数成分/涨停池等, key 自动读取)")
+    p.add_argument("path", help="以 /api/ 开头, 如 /api/meta/tickers/search")
+    p.add_argument("--param", action="append", help="k=v, 可重复")
+    p.add_argument("--out", default="", help="大结果落盘路径, 终端只报路径与大小")
+    p.set_defaults(func=cmd_ths)
+
+    p = sub.add_parser("lake", help="[新] 数据湖盘点(已下载/缺口/日期范围)")
+    p.set_defaults(func=cmd_lake)
 
     p = sub.add_parser("healthcheck",
                        help="运行全部端点健康检查")

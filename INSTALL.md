@@ -136,7 +136,7 @@ Start-Process "obsidian://open?path=$Encoded"
 pip install -r skills/investment-team-skill/requirements.txt
 ```
 
-`stock-data`、`web-harvest`、`zhiku-research`、`research-data-verify` 目前依赖的都是标准库或 `investment-team-skill` 里已经覆盖的包（`requests`/`pandas` 等），如果单独运行某个脚本时报 `ModuleNotFoundError`，按报错信息 `pip install` 对应的包即可。
+`stock-data` 不用手动装依赖：首次运行 `scripts/run_stock_data.py` 时，会按 `requirements-runtime.txt` 在 skill 目录下自动创建独立的 `.venv`。`web-harvest`、`zhiku-research`、`research-data-verify` 目前依赖的都是标准库或 `investment-team-skill` 里已经覆盖的包（`requests`/`pandas` 等），如果单独运行某个脚本时报 `ModuleNotFoundError`，按报错信息 `pip install` 对应的包即可。
 
 `quant-check` 需要独立的统计计算环境（避免和其他包的版本冲突）：
 
@@ -226,7 +226,7 @@ export FIRECRAWL_API_KEY="<你朋友自己的key>"
 python3 skills/web-harvest/scripts/doctor.py --live
 
 # stock-data 基本可用性（随便查一只股票的行情）
-python3 skills/stock-data/scripts/stock_data_cli.py quote --code AAPL
+python3 skills/stock-data/scripts/run_stock_data.py quote AAPL
 
 # investment-team-skill 缠论环境（如果做了第3步）
 skills/investment-team-skill/.venv-czsc/bin/python skills/investment-team-skill/scripts/cli/czsc_check.py SH600063 -m

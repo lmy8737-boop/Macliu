@@ -41,6 +41,10 @@ def validate_anysearch_probe(returncode: int, stdout: str, stderr: str) -> tuple
     text = stdout.strip()
     if not text:
         return "empty", "empty_stdout"
+    if text == "No relevant results found.":
+        if stderr.strip():
+            return "error", "unexpected_stderr"
+        return "empty", "no_relevant_results"
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     # 2026-09-07 修复：真实输出是 "## Search Results (1 results, 1862ms)"，
     # 带括号后缀（命中数+耗时）；旧正则要求标题后立刻结束（\s*$），从未匹配过
