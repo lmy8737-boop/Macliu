@@ -453,6 +453,7 @@ class HongKongQfqTests(unittest.TestCase):
         closes = [row["close"] for row in result["rows"]]
         self.assertEqual(closes, [90.0, 90.0, 90.0, 95.0])
         self.assertEqual(result["adjustment"], "qfq")
+        self.assertEqual(result["adjustment_method"], "ratio")
         self.assertEqual(result["dividend_events_applied"], 1)
 
     def test_adjclose_is_ignored_because_usd_dividends_are_mispriced(self):
@@ -508,6 +509,110 @@ class HongKongQfqTests(unittest.TestCase):
         yahoo.assert_not_called()
 
 
+class EastmoneyFallbackTests(unittest.TestCase):
+    def kline_response(self, closes, code="600519", rc=0, data_ok=True):
+        lines = [
+            f"2026-11-0{i + 1},{c},{c},{c + 1},{c - 1},{100 * (i + 1)},0" for i, c in enumerate(closes)
+        ]
+        response = mock.Mock()
+        response.json.return_value = {"rc": rc, "data": (
+            {"code": code, "name": "TEST", "klines": lines} if data_ok else None
+        )}
+        return response
+
+    def fetch(self, closes, factors=(), events=None, count=10, ktype=9, **kwargs):
+        with mock.patch.object(stock.requests, "get", return_value=self.kline_response(closes, **kwargs)), \
+             mock.patch.object(stock, "_baostock_fore_factors", return_value=list(factors)) as fore, \
+             mock.patch.object(stock, "_cn_dividend_events", return_value=events or {}):
+            result = stock.eastmoney_kline("600519", count=count, ktype=ktype)
+        return result, fore
+
+    def test_factor_applies_from_the_latest_event_not_after_the_date(self):
+        # 事件 11-02 因子 0.5、11-04 因子 1.0；早于首个事件的日期用首个事件的因子
+        result, _ = self.fetch([100.0, 100.0, 100.0, 100.0],
+                               factors=[("2026-11-02", 0.5), ("2026-11-04", 1.0)])
+        self.assertEqual([row["close"] for row in result["rows"]], [50.0, 50.0, 50.0, 100.0])
+        self.assertEqual(result["adjustment"], "qfq")
+        self.assertEqual(result["adjustment_method"], "ratio")
+        self.assertEqual(result["adjustment_events_in_window"], 2)
+        self.assertEqual(result["volume_unit"], "手")
+        self.assertEqual(result["stale_check"], "ok")
+
+    def test_stock_without_events_keeps_raw_prices(self):
+        result, _ = self.fetch([100.0, 90.0])
+        self.assertEqual([row["close"] for row in result["rows"]], [100.0, 90.0])
+
+    def test_unadjusted_ktype_does_not_touch_baostock(self):
+        result, fore = self.fetch([100.0, 90.0], factors=[("2026-11-02", 0.5)], ktype=101)
+        self.assertEqual([row["close"] for row in result["rows"]], [100.0, 90.0])
+        self.assertEqual(result["adjustment"], "none")
+        fore.assert_not_called()
+
+    def test_new_ex_date_missing_from_baostock_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "尚未收录.*2026-11-02"):
+            self.fetch([100.0, 90.0], factors=[("2026-10-01", 1.0)],
+                       events={"2026-11-02": (0.4, 0.0)})
+
+    def test_events_after_the_last_bar_or_already_in_baostock_are_ignored(self):
+        result, _ = self.fetch([100.0, 90.0], factors=[("2026-11-02", 1.0)],
+                               events={"2026-11-02": (0.4, 0.0), "2026-12-30": (0.4, 0.0)})
+        self.assertEqual(result["stale_check"], "ok")
+
+    def test_stale_check_failure_is_reported_not_hidden(self):
+        with mock.patch.object(stock.requests, "get", return_value=self.kline_response([100.0, 90.0])), \
+             mock.patch.object(stock, "_baostock_fore_factors", return_value=[]), \
+             mock.patch.object(stock, "_cn_dividend_events", side_effect=RuntimeError("datacenter down")):
+            result = stock.eastmoney_kline("600519", count=5)
+        self.assertTrue(result["stale_check"].startswith("skipped"))
+
+    def test_baostock_failure_propagates(self):
+        with mock.patch.object(stock.requests, "get", return_value=self.kline_response([100.0])), \
+             mock.patch.object(stock, "_baostock_fore_factors", side_effect=RuntimeError("baostock down")):
+            with self.assertRaisesRegex(RuntimeError, "baostock down"):
+                stock.eastmoney_kline("600519", count=5)
+
+    def test_contract_failures_fail_closed(self):
+        with self.assertRaisesRegex(ValueError, "no K-line data"):
+            self.fetch([100.0], data_ok=False, rc=102)
+        with self.assertRaisesRegex(ValueError, "symbol mismatch"):
+            self.fetch([100.0], code="000001")
+
+    def test_tencent_failure_falls_back_with_provenance(self):
+        eastmoney = {"rows": [], "source": "Eastmoney"}
+        with mock.patch.object(stock, "tencent_akline", side_effect=RuntimeError("501 Not Implemented")), \
+             mock.patch.object(stock, "eastmoney_kline", return_value=eastmoney) as fallback:
+            result = stock.adjusted_kline("600519", count=5)
+        fallback.assert_called_once()
+        self.assertIn("501", result["fallback_from"])
+
+    def test_healthy_tencent_does_not_touch_eastmoney(self):
+        with mock.patch.object(stock, "tencent_akline", return_value={"rows": []}), \
+             mock.patch.object(stock, "eastmoney_kline") as fallback:
+            stock.adjusted_kline("600519", count=5)
+        fallback.assert_not_called()
+
+    def test_fallback_is_not_used_for_unsupported_requests(self):
+        with mock.patch.object(stock, "tencent_akline", side_effect=ValueError("minute not enabled")), \
+             mock.patch.object(stock, "eastmoney_kline") as fallback:
+            with self.assertRaises(ValueError):
+                stock.adjusted_kline("600519", count=5, ktype=5)
+        fallback.assert_not_called()
+
+    def test_both_sources_failing_reports_both(self):
+        with mock.patch.object(stock, "tencent_akline", side_effect=RuntimeError("tencent down")), \
+             mock.patch.object(stock, "eastmoney_kline", side_effect=RuntimeError("em down")):
+            with self.assertRaisesRegex(RuntimeError, "tencent down.*em down"):
+                stock.adjusted_kline("600519", count=5)
+
+    def test_hong_kong_only_falls_back_for_unadjusted_bars(self):
+        with mock.patch.object(stock, "tencent_akline", side_effect=RuntimeError("501")), \
+             mock.patch.object(stock, "eastmoney_kline", return_value={"rows": []}) as fallback:
+            stock.adjusted_kline("00700", count=5, ktype=101)
+        fallback.assert_called_once()
+        with self.assertRaisesRegex(ValueError, "yahoo_hk_qfq_kline"):
+            stock.eastmoney_kline("00700", count=5, ktype=9)
+
+
 class CalendarCoverageTests(unittest.TestCase):
     def test_frozen_finite_calendar_rejects_uncovered_dates(self):
         class LimitedCalendar:
@@ -559,6 +664,7 @@ class KlineContractTests(unittest.TestCase):
             self.assertEqual(result["source_returned_count"], 6)
             self.assertEqual(result["requested_count"], 5)
             self.assertEqual(result["returned_count"], 5)
+            self.assertEqual(result["adjustment_method"], "price_difference")
 
     def test_invalid_duplicate_and_unsorted_rows_cannot_define_latest_window(self):
         rows = [bar("2026-09-05", 5), bar("bad-date", 9), bar("2026-09-02", 2),

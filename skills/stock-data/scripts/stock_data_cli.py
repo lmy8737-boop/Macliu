@@ -678,6 +678,7 @@ def yahoo_hk_qfq_kline(symbol: str, count: int = 250, ktype: int = 9) -> dict[st
         "ktype": ktype,
         "period": period,
         "adjustment": "qfq",
+        "adjustment_method": "ratio",
         "adjustment_scope": _HK_QFQ_LIMIT,
         "dividend_events_applied": applied,
         "count": len(rows),
@@ -687,11 +688,197 @@ def yahoo_hk_qfq_kline(symbol: str, count: int = 250, ktype: int = 9) -> dict[st
     }
 
 
+EASTMONEY_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+_CN_QFQ_LIMIT = (
+    "baostock 复权因子，覆盖现金分红、送转股和配股；增发和实物分派不调整。"
+    "配股按 baostock 口径，与按配股价公式计算最多差约 0.3%"
+)
+_EASTMONEY_FALLBACK_KTYPES = (9, 101, 102, 103)
+
+
+def _eastmoney_raw_bars(meta: NormalizedTicker, limit: int) -> tuple[str | None, list[dict[str, Any]], int]:
+    """东财不复权日线（fqt=0）。成交量单位是手（与新浪、baostock 的股数换算一致）。
+
+    不能直接用东财的 fqt=1：实测它的“前复权”是价差法（每个除息日整体减去每股现金分红），
+    汇丰这类高股息股在 5 年窗口里相对比例法偏差超过 300%，用来算收益会失真。
+    """
+    resp = requests.get(
+        EASTMONEY_KLINE_URL,
+        params={"secid": meta.eastmoney, "fields1": "f1,f2,f3,f4,f5,f6",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57", "klt": 101, "fqt": 0,
+                "lmt": min(limit, 12000), "end": "20500101"},
+        headers={"User-Agent": UA}, timeout=15,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(body, dict) or body.get("rc") != 0 or not isinstance(data, dict):
+        raise ValueError(f"Eastmoney returned no K-line data for {meta.eastmoney}")
+    if str(data.get("code")) != meta.code:
+        raise ValueError(
+            f"Eastmoney K-line symbol mismatch: requested={meta.code}, returned={data.get('code')!r}"
+        )
+    bars: list[dict[str, Any]] = []
+    invalid = 0
+    for line in data.get("klines") or []:
+        try:
+            date, open_, close, high, low, volume = str(line).split(",")[:6]
+            bars.append({"date": date, "open": float(open_), "close": float(close),
+                         "high": float(high), "low": float(low), "volume": float(volume)})
+        except (ValueError, TypeError):
+            invalid += 1
+    return data.get("name"), bars, invalid
+
+
+def _baostock_fore_factors(code: str) -> list[tuple[str, float]]:
+    """baostock 前复权因子 [(除权日, 因子)]，按日期升序.
+
+    语义 (2026-11-05 对 600519 的 1461 个交易日实测零偏差): 某日的因子 = 除权日不晚于该日的
+    最近一个事件的因子；早于首个事件的日期用首个事件的因子；最新一段因子为 1。
+    """
+    import contextlib
+    import io
+    import baostock as bs
+    bulk = _bulk_module()
+    bulk.install_baostock_guards()  # baostock 默认无超时，对端断开会空转
+    with contextlib.redirect_stdout(io.StringIO()):
+        login = bs.login()
+    if login.error_code != "0":
+        raise RuntimeError(f"baostock login failed: {login.error_code}:{login.error_msg}")
+    try:
+        result = bs.query_adjust_factor(
+            bulk.bs_code(code), start_date="1990-01-01", end_date=_dt.date.today().isoformat(),
+        )
+        if result.error_code != "0":
+            raise RuntimeError(f"baostock adjust factor failed: {result.error_code}:{result.error_msg}")
+        rows: list[tuple[str, float]] = []
+        while result.next():
+            fields = result.get_row_data()
+            rows.append((fields[1], float(fields[2])))
+    finally:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.suppress(Exception):
+            bs.logout()
+    return sorted(rows)
+
+
+def _cn_dividend_events(code: str) -> dict[str, tuple[float, float]]:
+    """A股除权除息事件: {除权日: (每股现金分红, 每股送转股数)}；同日多个事件合并.
+
+    只用来发现 baostock 尚未收录的新除权日。不能单独用于复权：2026-11-05 对照同花顺和
+    baostock 发现它漏了茅台 2022-12 和 2023-12、宁德时代 2025-01 的分红，
+    宁德时代 2024-04 的金额也不对（2.011 对 5.028 元/股）。
+    """
+    rows = eastmoney_datacenter(
+        "RPT_SHAREBONUS_DET", filter_str=f'(SECURITY_CODE="{code}")',
+        page_size=200, sort_columns="EX_DIVIDEND_DATE", sort_types=-1,
+    )
+    events: dict[str, tuple[float, float]] = {}
+    for row in rows:
+        ex_date = row.get("EX_DIVIDEND_DATE")
+        if not ex_date:
+            continue  # 预披露，尚未实施
+        cash = float(row.get("PRETAX_BONUS_RMB") or 0) / 10
+        shares = (float(row.get("BONUS_RATIO") or 0) + float(row.get("IT_RATIO") or 0)) / 10
+        if cash or shares:
+            old_cash, old_shares = events.get(str(ex_date)[:10], (0.0, 0.0))
+            events[str(ex_date)[:10]] = (old_cash + cash, old_shares + shares)
+    return events
+
+
+def eastmoney_kline(symbol: str, count: int = 250, ktype: int = 9) -> dict[str, Any]:
+    """东财不复权价 + baostock 复权因子 (A股前复权); 港股只提供不复权日线 (ktype=101).
+
+    这是腾讯 fqkline 失效时的降级路径。2026-11-05 用同花顺除权事件独立复算核对:
+    9 只无配股的 A股最大差 0.22%，7 只在 0.03% 以内。baostock 对配股的处理与公式略有差异。
+    """
+    if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+        raise ValueError("K-line count must be a positive integer")
+    meta = normalize_ticker(symbol)
+    if meta.market not in {"cn", "hk"} or ktype not in _EASTMONEY_FALLBACK_KTYPES:
+        raise ValueError(f"Eastmoney fallback does not support market={meta.market}, ktype={ktype}")
+    if meta.market == "hk" and ktype != 101:
+        raise ValueError("港股前复权请用 yahoo_hk_qfq_kline；东财降级路径只提供港股不复权日线")
+    period = {9: "day", 101: "day", 102: "week", 103: "month"}[ktype]
+    bars_per_row = {"day": 1, "week": 5, "month": 22}[period]
+    name, bars, invalid_count = _eastmoney_raw_bars(meta, count * bars_per_row + 40)
+    if not bars:
+        raise ValueError(f"Eastmoney returned no usable K-line rows for {meta.eastmoney}")
+    applied = 0
+    stale_check = None
+    if ktype != 101:
+        factors = _baostock_fore_factors(meta.code)
+        factor_dates = [item[0] for item in factors]
+        last_bar = bars[-1]["date"]
+        # baostock 在除权日当天可能还没更新：东财分红表里有它没收录的新除权日就拒绝输出
+        try:
+            newer = sorted(
+                day for day in _cn_dividend_events(meta.code)
+                if (factor_dates[-1] if factor_dates else "") < day <= last_bar
+            )
+            stale_check = "ok"
+        except Exception as exc:
+            newer, stale_check = [], f"skipped: {str(exc)[:80]}"
+        if newer:
+            raise ValueError(
+                f"baostock 复权因子尚未收录 {meta.code} 的除权日 {newer}，前复权价不可靠；"
+                "请稍后重试，或等腾讯 fqkline 恢复"
+            )
+        for bar in bars:
+            index = bisect.bisect_right(factor_dates, bar["date"]) - 1
+            factor = factors[max(index, 0)][1] if factors else 1.0
+            for field in ("open", "high", "low", "close"):
+                bar[field] *= factor
+        applied = sum(1 for day in factor_dates if bars[0]["date"] < day <= last_bar)
+    padded = bars + [{}] * invalid_count  # 解析失败的行交给校验器计入 invalid_row_count
+    if period == "day":
+        rows, row_metadata = _validated_recent_bars(padded, count)
+    else:
+        rows, row_metadata = _validated_recent_bars(
+            _aggregate_bars(_validated_recent_bars(padded, len(padded))[0], period), count
+        )
+    if not rows:
+        raise ValueError(f"Eastmoney returned no valid K-line rows for {meta.eastmoney}")
+    return {
+        "rows": rows,
+        "code": meta.code,
+        "name": name,
+        "market": meta.market,
+        "source": "Eastmoney 不复权价" + (" + baostock 复权因子 (前复权)" if ktype != 101 else ""),
+        "ktype": ktype,
+        "period": period,
+        "adjustment": "none" if ktype == 101 else "qfq",
+        "adjustment_method": "none" if ktype == 101 else "ratio",
+        **({} if ktype == 101 else {
+            "adjustment_scope": _CN_QFQ_LIMIT, "adjustment_events_in_window": applied,
+            "stale_check": stale_check,
+        }),
+        "volume_unit": "手",
+        "count": len(rows),
+        **row_metadata,
+        "period_start": rows[0]["date"],
+        "period_end": rows[-1]["date"],
+    }
+
+
 def adjusted_kline(symbol: str, count: int = 250, ktype: int = 9) -> dict[str, Any]:
-    """A股走腾讯 fqkline；港股前复权走 Yahoo，港股不复权仍走腾讯."""
-    if normalize_ticker(symbol).market == "hk" and ktype in _HK_QFQ_PERIODS:
+    """A股走腾讯 fqkline，失败时降级到东财自算；港股前复权走 Yahoo，港股不复权同样先腾讯后东财."""
+    meta = normalize_ticker(symbol)
+    if meta.market == "hk" and ktype in _HK_QFQ_PERIODS:
         return yahoo_hk_qfq_kline(symbol, count=count, ktype=ktype)
-    return tencent_akline(symbol, count=count, ktype=ktype)
+    try:
+        return tencent_akline(symbol, count=count, ktype=ktype)
+    except Exception as primary_error:
+        if meta.market not in {"cn", "hk"} or ktype not in _EASTMONEY_FALLBACK_KTYPES:
+            raise
+        try:
+            result = eastmoney_kline(symbol, count=count, ktype=ktype)
+        except Exception as fallback_error:
+            raise RuntimeError(
+                f"Tencent failed ({str(primary_error)[:160]}); "
+                f"Eastmoney fallback also failed ({str(fallback_error)[:160]})"
+            ) from fallback_error
+        result["fallback_from"] = f"Tencent: {str(primary_error)[:160]}"
+        return result
 
 
 # ===========================================================================
@@ -794,6 +981,8 @@ def tencent_akline(symbol: str, count: int = 250, ktype: int = 9) -> dict[str, A
         "ktype": ktype,
         "period": period,
         "adjustment": "qfq" if fqt == "qfq" else "none",
+        # 实测 2026-11-05: 腾讯的“前复权”是价差法（除权日整体减去每股分红），不是比例法
+        "adjustment_method": "price_difference" if fqt == "qfq" else "none",
         "count": len(rows),
         "request_param": param,
         "response_key": key,
@@ -2313,6 +2502,7 @@ def cmd_healthcheck(args: argparse.Namespace) -> int:
         ("sec_cik", lambda: ticker_to_cik("AAPL").get("cik"), False),
         ("akline_cn_tencent", lambda: tencent_akline("600519", count=20)["rows"], False),
         ("akline_hk_yahoo_qfq", lambda: adjusted_kline("00700", count=20)["rows"], False),
+        ("akline_cn_eastmoney", lambda: eastmoney_kline("600519", count=20)["rows"], False),
         ("longhubang_daily", lambda: longhubang_daily("2026-09-03")["stocks"], False),
         ("longhubang_stock", lambda: longhubang_stock("002475", days=30)["records"], True),
         ("margin_trading", lambda: margin_trading("600519", days=10), False),
