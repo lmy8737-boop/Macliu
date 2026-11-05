@@ -332,6 +332,23 @@ class QuoteTests(unittest.TestCase):
         self.assertIsNone(stock._yahoo_calendar_name("cn", "SHZ"))
         self.assertIsNone(stock._yahoo_calendar_name("us", "ASE"))
 
+    def test_yahoo_quotes_sends_crumb_and_keeps_valuation_fields(self):
+        response = mock.Mock()
+        response.json.return_value = {"quoteResponse": {"result": [{
+            "symbol": "AAPL", "exchange": "NMS", "regularMarketPrice": 250.0,
+            "regularMarketTime": 1793826001, "marketCap": 100, "trailingPE": 30.0,
+            "exchangeTimezoneName": "America/New_York",
+        }]}}
+        session = mock.Mock(_crumb="test-crumb")
+        session.get.return_value = response
+        with mock.patch.object(stock, "_yahoo_session", return_value=session):
+            result = stock.yahoo_quotes([stock.normalize_ticker("AAPL")])
+        self.assertEqual(session.get.call_args.kwargs["params"]["crumb"], "test-crumb")
+        self.assertEqual(result["AAPL"]["price"], 250.0)
+        self.assertEqual(result["AAPL"]["market_cap"], 100)
+        self.assertEqual(result["AAPL"]["pe_ttm"], 30.0)
+        self.assertEqual(result["AAPL"]["calendar_name"], "XNAS")
+
 
 @unittest.skipUnless(
     importlib.util.find_spec("exchange_calendars"),

@@ -492,8 +492,9 @@ def yahoo_quotes(symbols: list[NormalizedTicker]) -> dict[str, dict[str, Any]]:
     if not symbols:
         return {}
     url = "https://query1.finance.yahoo.com/v7/finance/quote"
-    params = {"symbols": ",".join(s.yahoo for s in symbols)}
-    resp = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=15)
+    session = _yahoo_session()  # v7/quote 不带 crumb 返回 401（2026-11-05 实测）
+    params = {"symbols": ",".join(s.yahoo for s in symbols), "crumb": session._crumb}  # type: ignore[attr-defined]
+    resp = session.get(url, params=params, timeout=15)
     resp.raise_for_status()
     retrieved_at = _utc_now_iso()
     by_symbol = {item.get("symbol"): item for item in resp.json().get("quoteResponse", {}).get("result", [])}
