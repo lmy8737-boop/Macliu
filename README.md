@@ -1,7 +1,7 @@
 # Macliu 投研工作流
 
 > [!note] 挑一个适合你的版本
-> **这是"傻瓜化全自动版"**（`main` 分支 / [v2.5.1](https://github.com/lmy8737-boop/Macliu/releases/tag/v2.5.1)）：克隆下来就是一个能直接打开的 Obsidian 知识库，`INSTALL.md` 连 Obsidian 应用本身都会尝试自动装好。**适合从零开始、想开箱即用的场景**。
+> **这是"傻瓜化全自动版"**（`main` 分支 / [v2.5.2](https://github.com/lmy8737-boop/Macliu/releases/tag/v2.5.2)）：克隆下来就是一个能直接打开的 Obsidian 知识库，`INSTALL.md` 连 Obsidian 应用本身都会尝试自动装好。**适合从零开始、想开箱即用的场景**。
 >
 > 如果你**已经有自己的 Obsidian 知识库**，只想把这套研究方法论接进去、不想要额外的文件夹结构，用 [`methodology-only` 分支](https://github.com/lmy8737-boop/Macliu/tree/methodology-only)（对应 [v2.2.0](https://github.com/lmy8737-boop/Macliu/releases/tag/v2.2.0)）：`git clone -b methodology-only https://github.com/lmy8737-boop/Macliu.git`。
 

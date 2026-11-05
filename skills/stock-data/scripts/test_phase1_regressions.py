@@ -412,6 +412,102 @@ class ExchangeCalendarIntegrationTests(unittest.TestCase):
         self.assertEqual(result["calendar_status"], "calendar_lookup_failed")
         self.assertFalse(result["t0_eligible"])
 
+class HongKongQfqTests(unittest.TestCase):
+    DAY = 86400
+    START = 1793839800  # 2026-11-05 09:30 HKT 附近的固定时间戳
+
+    def chart(self, closes, dividends=None, granularity="1d", symbol="0700.HK", adjclose=None):
+        timestamps = [self.START + i * self.DAY for i in range(len(closes))]
+        indicators = {"quote": [{
+            "open": closes, "high": [c + 1 for c in closes],
+            "low": [c - 1 for c in closes], "close": closes, "volume": [10] * len(closes),
+        }]}
+        if adjclose:
+            indicators["adjclose"] = [{"adjclose": adjclose}]
+        response = mock.Mock()
+        response.json.return_value = {"chart": {"result": [{
+            "meta": {"symbol": symbol, "dataGranularity": granularity, "gmtoffset": 28800,
+                     "shortName": "TEST"},
+            "timestamp": timestamps,
+            "events": {"dividends": {
+                str(timestamps[i]): {"date": timestamps[i], "amount": amount}
+                for i, amount in (dividends or {}).items()
+            }},
+            "indicators": indicators,
+        }]}}
+        return response
+
+    def fetch(self, response, count=10, ktype=9, symbol="00700"):
+        with mock.patch.object(stock.requests, "get", return_value=response) as get:
+            result = stock.adjusted_kline(symbol, count=count, ktype=ktype)
+        return result, get
+
+    def test_yahoo_hk_symbols_are_zero_padded(self):
+        self.assertEqual(stock.normalize_ticker("00700").yahoo, "0700.HK")
+        self.assertEqual(stock.normalize_ticker("00005").yahoo, "0005.HK")
+        self.assertEqual(stock.normalize_ticker("09988").yahoo, "9988.HK")
+        self.assertEqual(stock.normalize_ticker("0700.HK").code, "00700")
+
+    def test_dividend_scales_only_bars_before_ex_date(self):
+        result, _ = self.fetch(self.chart([100.0, 100.0, 90.0, 95.0], dividends={2: 10.0}))
+        closes = [row["close"] for row in result["rows"]]
+        self.assertEqual(closes, [90.0, 90.0, 90.0, 95.0])
+        self.assertEqual(result["adjustment"], "qfq")
+        self.assertEqual(result["dividend_events_applied"], 1)
+
+    def test_adjclose_is_ignored_because_usd_dividends_are_mispriced(self):
+        result, _ = self.fetch(self.chart(
+            [100.0, 90.0], dividends={1: 10.0}, adjclose=[98.7, 90.0],
+        ))
+        self.assertEqual(result["rows"][0]["close"], 90.0)
+
+    def test_multiple_dividends_compound(self):
+        result, _ = self.fetch(self.chart(
+            [100.0, 100.0, 100.0], dividends={1: 10.0, 2: 50.0},
+        ))
+        self.assertEqual([row["close"] for row in result["rows"]], [45.0, 50.0, 100.0])
+
+    def test_dividend_outside_window_is_not_applied(self):
+        result, _ = self.fetch(self.chart([100.0, 90.0], dividends={0: 10.0}))
+        self.assertEqual([row["close"] for row in result["rows"]], [100.0, 90.0])
+        self.assertEqual(result["dividend_events_applied"], 0)
+
+    def test_impossible_dividend_fails_closed(self):
+        for amount in (0, -1, 100.0, 500.0):
+            with self.subTest(amount=amount), self.assertRaisesRegex(ValueError, "dividend out of range"):
+                self.fetch(self.chart([100.0, 90.0], dividends={1: amount}))
+
+    def test_contract_mismatch_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "interval mismatch"):
+            self.fetch(self.chart([100.0], granularity="1mo"))
+        with self.assertRaisesRegex(ValueError, "symbol mismatch"):
+            self.fetch(self.chart([100.0], symbol="0005.HK"))
+
+    def test_request_uses_explicit_window_because_range_max_degrades(self):
+        _, get = self.fetch(self.chart([100.0, 101.0]))
+        params = get.call_args.kwargs["params"]
+        self.assertNotIn("range", params)
+        self.assertEqual(params["interval"], "1d")
+        self.assertIn("period1", params)
+
+    def test_weekly_bars_aggregate_adjusted_daily_rows(self):
+        closes = [100.0, 100.0, 90.0, 92.0, 94.0, 96.0, 98.0, 99.0]
+        result, _ = self.fetch(self.chart(closes, dividends={2: 10.0}), ktype=102)
+        self.assertEqual(result["period"], "week")
+        rows = result["rows"]
+        self.assertEqual(rows[-1]["close"], 99.0)
+        self.assertEqual(sum(row["volume"] for row in rows), 80)
+        self.assertLess(len(rows), len(closes))
+
+    def test_a_share_and_hk_unadjusted_stay_on_tencent(self):
+        with mock.patch.object(stock, "tencent_akline", return_value={"rows": []}) as tencent, \
+             mock.patch.object(stock, "yahoo_hk_qfq_kline") as yahoo:
+            stock.adjusted_kline("600519", count=1, ktype=9)
+            stock.adjusted_kline("00700", count=1, ktype=101)
+        self.assertEqual(tencent.call_count, 2)
+        yahoo.assert_not_called()
+
+
 class CalendarCoverageTests(unittest.TestCase):
     def test_frozen_finite_calendar_rejects_uncovered_dates(self):
         class LimitedCalendar:

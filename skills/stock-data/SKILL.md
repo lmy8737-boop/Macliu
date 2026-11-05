@@ -2,7 +2,7 @@
 name: stock-data
 description: 全市场结构化股票数据 Skill（A股+港股+美股）。用于行情、K线、估值历史(PE/PB/PS/PCF)、财报、研报、公告全文、资金流(分钟级)、龙虎榜、解禁/大宗交易/分红/股东户数、板块排名(行业/概念/地域)、题材归因、实时快讯、机构持仓、上市退市日期、筹码分布(获利比例/成本区间)、全A两融余额、个股融资融券、指数/ETF、技术指标、SEC EDGAR/XBRL、期权链、股票代码搜索、申万行业变迁史（避免回测前视偏差）和投研数据健康检查；另含量化研究的**批量数据湖**能力（baostock 5分钟线/日线+复权因子批量下载、同花顺 fuyao 全市场日K/复权事件 dump 与财务估值指数板块 REST 透传、数据湖盘点），是量化模型研究的数据总入口。结构化金融数据优先用本 skill；未知网页搜索、网页正文抓取、登录态页面和复杂爬虫交给 web-harvest。
 origin: custom
-version: 5.8.1
+version: 5.8.2
 updated: 2026-11-05
 ---
 
@@ -18,7 +18,7 @@ skill-local `.venv` from `requirements-runtime.txt`; later calls reuse it:
 ```bash
 python3 scripts/run_stock_data.py quote 600519 00700 AAPL
 python3 scripts/run_stock_data.py kline AAPL --period 6mo --interval 1d
-python3 scripts/run_stock_data.py akline 600519 --count 250      # 腾讯 fqkline 前复权日K (A股/港股)
+python3 scripts/run_stock_data.py akline 600519 --count 250      # 前复权日K (A股腾讯 fqkline, 港股 Yahoo 自算)
 python3 scripts/run_stock_data.py longhubang --date 2026-09-03   # 全市场龙虎榜 (东财 datacenter)
 python3 scripts/run_stock_data.py longhubang --code 002475 --days 30  # 个股上榜记录+席位
 python3 scripts/run_stock_data.py margin 600519 --days 30        # 个股融资融券日级明细
@@ -56,7 +56,7 @@ Use inline snippets from references only when the CLI does not cover the request
 - **Realtime quotes / valuation snapshot**: use `scripts/run_stock_data.py quote`. `status` / `acquisition_status` only means a quote was acquired; use `freshness_status` and `t0_eligible` separately for timeliness.
 - **K-line / technical indicator input**: use `scripts/run_stock_data.py kline`; `--count N` means at most the latest N valid, date-sorted bars after invalid-row removal and date de-duplication. For advanced indicators read `references/a-stock-data-v5-full.md` section `Layer 10.1`.
 - **A股 research data**: use Tencent, Eastmoney datacenter/reportapi, 同花顺, 巨潮, mootdx patterns in `references/a-stock-data-v5-full.md`.
-- **A股/港股 K线（前复权）**: use `scripts/run_stock_data.py akline <code>`（腾讯 fqkline）; 美股/指数仍走 `kline`（Yahoo）。`akline` 与 `kline` 对 A股/港股等价，`kline` 内部已自动路由到 fqkline。
+- **A股/港股 K线（前复权）**: use `scripts/run_stock_data.py akline <code>`（A股腾讯 fqkline；港股用 Yahoo close + 现金分红事件自算，输出 `adjustment_scope` 写明范围）; 美股/指数仍走 `kline`（Yahoo）。`akline` 与 `kline` 对 A股/港股等价。**港股实物分派（如腾讯派发京东、美团股票）和供股不调整**，长窗口收益要自行核对。
 - **龙虎榜（全市场 / 个股）**: use `scripts/run_stock_data.py longhubang`（东财 datacenter-web `RPT_DAILYBILLBOARD_DETAILSNEW` + 席位 `RPT_BILLBOARD_DAILYDETAILSBUY/SELL`）。
 - **个股融资融券日级明细**: use `scripts/run_stock_data.py margin`（东财 datacenter-web `RPTA_WEB_RZRQ_GGMX`）。
 - **A股市资金流 / 多股指标对比 / 个股资讯聚合**: TDX MCP 可用时优先补位（见下方优先级第 6 条），不可用回退东财/Tencent。

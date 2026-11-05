@@ -12,6 +12,7 @@ SKILL.md 的 references/ 文档中记录, 按需后续单独沉淀到 CLI。
 from __future__ import annotations
 
 import argparse
+import bisect
 import datetime as _dt
 import json
 import math
@@ -63,7 +64,7 @@ def normalize_ticker(raw: str) -> NormalizedTicker:
     hk_match = re.match(r"^(?:HK)?0*(\d{1,5})(?:\.HK)?$", upper)
     if upper.startswith("HK") or upper.endswith(".HK") or (hk_match and len(re.sub(r"\D", "", upper)) < 6):
         digits = re.sub(r"\D", "", upper).zfill(5)
-        yahoo_num = str(int(digits)) if int(digits) else digits
+        yahoo_num = f"{int(digits):04d}"  # Yahoo 只认 0700.HK，700.HK 返回 404
         return NormalizedTicker(
             raw=value, market="hk", code=digits, yahoo=f"{yahoo_num}.HK",
             tencent=f"hk{digits}", eastmoney=f"116.{digits}",
@@ -525,12 +526,10 @@ def yahoo_quotes(symbols: list[NormalizedTicker]) -> dict[str, dict[str, Any]]:
     return out
 
 
-def yahoo_kline(symbol: str, period: str, interval: str) -> list[dict[str, Any]]:
-    ticker = normalize_ticker(symbol)
+def _yahoo_chart(ticker: NormalizedTicker, params: dict[str, Any], interval: str) -> dict[str, Any]:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(ticker.yahoo)}"
     resp = requests.get(
-        url,
-        params={"range": period, "interval": interval, "includePrePost": "false"},
+        url, params={**params, "interval": interval, "includePrePost": "false"},
         headers={"User-Agent": UA}, timeout=15,
     )
     resp.raise_for_status()
@@ -549,6 +548,12 @@ def yahoo_kline(symbol: str, period: str, interval: str) -> list[dict[str, Any]]
         raise ValueError(
             f"Yahoo K-line interval mismatch: requested={interval}, returned={actual_interval!r}"
         )
+    return chart
+
+
+def yahoo_kline(symbol: str, period: str, interval: str) -> list[dict[str, Any]]:
+    ticker = normalize_ticker(symbol)
+    chart = _yahoo_chart(ticker, {"range": period}, interval)
     timestamps = chart.get("timestamp") or []
     quote = (chart.get("indicators", {}).get("quote") or [{}])[0]
     rows = []
@@ -571,6 +576,125 @@ def yahoo_kline(symbol: str, period: str, interval: str) -> list[dict[str, Any]]
 
 
 # ===========================================================================
+# 港股前复权: Yahoo close + 现金分红事件
+# ===========================================================================
+
+_HK_QFQ_PERIODS = {9: ("day", 2), 102: ("week", 8), 103: ("month", 32)}  # ktype -> (周期, 每根所需自然日)
+_HK_QFQ_LIMIT = "仅现金分红和拆并股；实物分派（如腾讯派发京东、美团股票）和供股不调整"
+
+
+def _aggregate_bars(rows: list[dict[str, Any]], period: str) -> list[dict[str, Any]]:
+    """把已复权日线聚合成周线/月线；日期取该周期最后一个交易日。"""
+    groups: dict[Any, list[dict[str, Any]]] = {}
+    for row in rows:
+        day = _dt.date.fromisoformat(row["date"])
+        key = day.isocalendar()[:2] if period == "week" else (day.year, day.month)
+        groups.setdefault(key, []).append(row)
+    return [{
+        "date": bars[-1]["date"], "open": bars[0]["open"], "close": bars[-1]["close"],
+        "high": max(bar["high"] for bar in bars), "low": min(bar["low"] for bar in bars),
+        "volume": sum(bar["volume"] for bar in bars),
+    } for bars in groups.values()]
+
+
+def yahoo_hk_qfq_kline(symbol: str, count: int = 250, ktype: int = 9) -> dict[str, Any]:
+    """港股前复权 K线: Yahoo close（已含拆并股）+ 现金分红事件自算因子.
+
+    实测 (2026-11-05):
+    - 腾讯 fqkline 对港股请求 qfq 只返回未复权的 `day` 键，不再有 qfqday。
+    - 不用 Yahoo adjclose: 美元派息的港股（09988、00005）它把美元金额直接算在港元价上，
+      因子只有应有值的约 1/7.8；dividends 事件的金额已换算成港元，并已按拆股调整。
+    - range=max 会退化成月线，所以用 period1/period2 指定区间。
+    """
+    if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+        raise ValueError("K-line count must be a positive integer")
+    meta = normalize_ticker(symbol)
+    if meta.market != "hk":
+        raise ValueError(f"yahoo_hk_qfq_kline 只支持港股 (got market={meta.market})")
+    if ktype not in _HK_QFQ_PERIODS:
+        raise ValueError(f"Unsupported HK qfq ktype: {ktype}")
+    period, days_per_bar = _HK_QFQ_PERIODS[ktype]
+    period2 = int(time.time())
+    period1 = max(0, period2 - (count * days_per_bar + 40) * 86400)
+    chart = _yahoo_chart(meta, {"period1": period1, "period2": period2, "events": "div,split"}, "1d")
+    chart_meta = chart.get("meta") or {}
+    gmtoffset = chart_meta.get("gmtoffset")
+    if not isinstance(gmtoffset, int):
+        raise ValueError(f"Yahoo returned no gmtoffset for {meta.yahoo}")
+
+    def local_date(timestamp: int) -> str:
+        return _dt.datetime.fromtimestamp(timestamp + gmtoffset, _dt.timezone.utc).strftime("%Y-%m-%d")
+
+    quote = (chart.get("indicators", {}).get("quote") or [{}])[0]
+    by_date: dict[str, dict[str, Any]] = {}
+    for i, timestamp in enumerate(chart.get("timestamp") or []):
+        close = _seq(quote.get("close"), i)
+        if close is None:
+            continue
+        by_date[local_date(timestamp)] = {
+            "date": local_date(timestamp), "open": _seq(quote.get("open"), i), "close": close,
+            "high": _seq(quote.get("high"), i), "low": _seq(quote.get("low"), i),
+            "volume": _seq(quote.get("volume"), i),
+        }
+    dates = sorted(by_date)
+    if not dates:
+        raise ValueError(f"Yahoo returned no usable K-line rows for {meta.yahoo}")
+    bars = [by_date[date] for date in dates]
+
+    # 除息日之前的所有 K 线乘 (1 - 现金分红 / 除息前收盘)，最新价保持真实价格
+    multipliers = [1.0] * len(bars)
+    applied = 0
+    for event in ((chart.get("events") or {}).get("dividends") or {}).values():
+        ex_index = bisect.bisect_left(dates, local_date(event["date"]))
+        if ex_index in (0, len(bars)):
+            continue  # 窗口之外的除息不影响窗口内的价格关系
+        amount, prev_close = float(event["amount"]), float(bars[ex_index - 1]["close"])
+        if not 0 < amount < prev_close:
+            raise ValueError(
+                f"Yahoo dividend out of range for {meta.yahoo}: "
+                f"amount={amount}, prev_close={prev_close}, ex_date={dates[ex_index]}"
+            )
+        multipliers[ex_index - 1] *= 1 - amount / prev_close
+        applied += 1
+    factor = 1.0
+    for bar, multiplier in zip(reversed(bars), reversed(multipliers)):
+        factor *= multiplier
+        for field in ("open", "high", "low", "close"):
+            bar[field] = None if bar[field] is None else float(bar[field]) * factor
+
+    if period == "day":
+        rows, row_metadata = _validated_recent_bars(bars, count)
+    else:
+        daily_rows, _ = _validated_recent_bars(bars, len(bars))
+        rows, row_metadata = _validated_recent_bars(_aggregate_bars(daily_rows, period), count)
+    if not rows:
+        raise ValueError(f"Yahoo returned no valid K-line rows for {meta.yahoo}, period={period}")
+    return {
+        "rows": rows,
+        "code": meta.code,
+        "name": chart_meta.get("shortName") or chart_meta.get("longName"),
+        "market": meta.market,
+        "source": "Yahoo chart + 现金分红事件 (前复权)",
+        "ktype": ktype,
+        "period": period,
+        "adjustment": "qfq",
+        "adjustment_scope": _HK_QFQ_LIMIT,
+        "dividend_events_applied": applied,
+        "count": len(rows),
+        **row_metadata,
+        "period_start": rows[0]["date"],
+        "period_end": rows[-1]["date"],
+    }
+
+
+def adjusted_kline(symbol: str, count: int = 250, ktype: int = 9) -> dict[str, Any]:
+    """A股走腾讯 fqkline；港股前复权走 Yahoo，港股不复权仍走腾讯."""
+    if normalize_ticker(symbol).market == "hk" and ktype in _HK_QFQ_PERIODS:
+        return yahoo_hk_qfq_kline(symbol, count=count, ktype=ktype)
+    return tencent_akline(symbol, count=count, ktype=ktype)
+
+
+# ===========================================================================
 # 新增: 腾讯 fqkline — A股/港股 K线 (前复权)
 # ===========================================================================
 
@@ -579,7 +703,7 @@ def tencent_akline(symbol: str, count: int = 250, ktype: int = 9) -> dict[str, A
 
     沙箱实测 (2026-09-04), 关键契约:
     - A股: param `sh600519,day,,,20,qfq` -> 返回 data["sh600519"]["qfqday"]
-    - 港股: param `hk00700,day,,,20,qfq` -> 返回 data["hk00700"]["qfqday"]
+    - 港股: 2026-11-05 起 qfq 只返回未复权 `day` 键，前复权改走 yahoo_hk_qfq_kline
            (注意: 港股符号是 `hk00700`, 不是 `r_hk00700`, 后者返回空)
     - 参数格式: <sym>,<period>,<start>,<end>,<count>,<末位flag> = 6 字段
     - 不复权日线: 末位传 "9" -> 返回键 "day" (前复权末位传 "qfq" -> 键 "qfqday")
@@ -1181,7 +1305,7 @@ def _ema_series(values: list[float], period: int) -> list[float]:
 def _klines_for_indicator(symbol: str, count: int) -> list[dict[str, Any]]:
     meta = normalize_ticker(symbol)
     if meta.market in {"cn", "hk"}:
-        return tencent_akline(symbol, count=count)["rows"]
+        return adjusted_kline(symbol, count=count)["rows"]
     # Yahoo 用 period 而非 count；粗略换算，多取一些防止指标热身期不够
     days_needed = max(count * 2, 120)
     period = f"{days_needed}d" if days_needed <= 730 else "5y"
@@ -1904,9 +2028,9 @@ def cmd_quote(args: argparse.Namespace) -> int:
 
 
 def cmd_kline(args: argparse.Namespace) -> int:
-    """智能路由 K线: A股/港股 → 腾讯 fqkline (前复权), 美股/指数 → Yahoo.
+    """智能路由 K线: A股 → 腾讯 fqkline (前复权), 港股 → Yahoo 自算前复权, 美股/指数 → Yahoo.
 
-    沙箱实测 (2026-09-04): A股/港股走 fqkline 准确度优于 Yahoo (Yahoo A股数据残缺/延迟).
+    沙箱实测 (2026-09-04): A股走 fqkline 准确度优于 Yahoo (Yahoo A股数据残缺/延迟).
     """
     if isinstance(args.count, bool) or not isinstance(args.count, int) or args.count <= 0:
         raise ValueError("K-line count must be a positive integer")
@@ -1920,7 +2044,7 @@ def cmd_kline(args: argparse.Namespace) -> int:
             ktype = interval_to_ktype[args.interval]
         else:
             raise ValueError(f"Unsupported A/H K-line interval: {args.interval}")
-        result = tencent_akline(args.symbol, count=args.count, ktype=ktype)
+        result = adjusted_kline(args.symbol, count=args.count, ktype=ktype)
         print_json({"symbol": args.symbol, **result, "interval": args.interval})
     else:
         raw_rows = yahoo_kline(args.symbol, args.period, args.interval)
@@ -1938,8 +2062,8 @@ def cmd_kline(args: argparse.Namespace) -> int:
 
 
 def cmd_akline(args: argparse.Namespace) -> int:
-    """显式调用腾讯 fqkline (A股/港股 前复权 K线)."""
-    result = tencent_akline(args.symbol, count=args.count, ktype=args.ktype)
+    """A股/港股前复权 K线 (A股腾讯 fqkline, 港股 Yahoo 自算)."""
+    result = adjusted_kline(args.symbol, count=args.count, ktype=args.ktype)
     print_json({"symbol": args.symbol, **result})
     return 0
 
@@ -2188,7 +2312,7 @@ def cmd_healthcheck(args: argparse.Namespace) -> int:
         ("eastmoney_search", lambda: eastmoney_search("英伟达", 3), False),
         ("sec_cik", lambda: ticker_to_cik("AAPL").get("cik"), False),
         ("akline_cn_tencent", lambda: tencent_akline("600519", count=20)["rows"], False),
-        ("akline_hk_tencent", lambda: tencent_akline("00700", count=20)["rows"], False),
+        ("akline_hk_yahoo_qfq", lambda: adjusted_kline("00700", count=20)["rows"], False),
         ("longhubang_daily", lambda: longhubang_daily("2026-09-03")["stocks"], False),
         ("longhubang_stock", lambda: longhubang_stock("002475", days=30)["records"], True),
         ("margin_trading", lambda: margin_trading("600519", days=10), False),
